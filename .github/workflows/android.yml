@@ -3,6 +3,11 @@ on:
   push:
     branches: ['**']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the version in android/app/build.gradle (main only, requires persistent signing)
+        type: boolean
+        default: false
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -16,42 +21,64 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Build and verify signed APK
+      - name: Build and verify APK
+        shell: bash
+        id: build
         env:
+          PUBLISH: ${{ inputs.publish }}
           KEYSTORE_BASE64: ${{ secrets.STILL_KEYSTORE_BASE64 }}
           STILL_STORE_PASSWORD: ${{ secrets.STILL_STORE_PASSWORD }}
+          CERTIFICATE_SHA256: ${{ vars.STILL_CERTIFICATE_SHA256 }}
         run: |
-          apk=Still-v0.2.0-debug.apk
+          version=$(sed -n "s/^[[:space:]]*versionName '\([0-9][0-9.]*\)'.*/\1/p" android/app/build.gradle)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          apk="Still-v$version-debug.apk"
+          if [[ "$PUBLISH" == true && ( "$GITHUB_REF" != refs/heads/main || -z "$KEYSTORE_BASE64" || -z "$STILL_STORE_PASSWORD" || -z "$CERTIFICATE_SHA256" ) ]]; then
+            echo '::error::Publishing requires main, both release signing secrets, and the pinned certificate SHA-256.'
+            exit 1
+          fi
           if [[ -n "$KEYSTORE_BASE64" && -n "$STILL_STORE_PASSWORD" ]]; then
             umask 077
             export STILL_KEYSTORE="$RUNNER_TEMP/still.p12"
             trap 'rm -f "$STILL_KEYSTORE"' EXIT
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$STILL_KEYSTORE"
-            apk=Still-v0.2.0.apk
+            apk="Still-v$version.apk"
           fi
-          if ! android/scripts/package-apk.sh "$apk" > >(tee "$RUNNER_TEMP/package.log") 2>&1; then
+          if ! android/scripts/package-apk.sh "$apk" 2>&1 | tee "$RUNNER_TEMP/package.log"; then
             tail -n 12 "$RUNNER_TEMP/package.log" | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           fi
-      - name: Publish v0.2.0
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+          if [[ -n "${STILL_KEYSTORE:-}" && -n "$CERTIFICATE_SHA256" ]]; then
+            expected=$(printf '%s' "$CERTIFICATE_SHA256" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+            actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/package.log")
+            if [[ ! "$expected" =~ ^[0-9a-f]{64}$ || "$expected" != "$actual" ]]; then
+              echo '::error::Release signing certificate does not match the pinned fingerprint.'
+              exit 1
+            fi
+          fi
+          printf 'apk=%s\ntag=v%s\n' "$apk" "$version" >> "$GITHUB_OUTPUT"
+      - name: Publish release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
+          APK: ${{ steps.build.outputs.apk }}
+          TAG: ${{ steps.build.outputs.tag }}
+        run: gh release create "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Still $TAG" --generate-notes
+      - name: Publish v0.3.0 Preview 1
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outputs.tag == 'v0.3.0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK: ${{ steps.build.outputs.apk }}
         run: |
-          if gh release view v0.2.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
-          apk=$(echo Still-*.apk)
-          notes=$(cat <<'NOTES'
-          Still v0.2.0 for Android 8.0 and later.
+          tag=v0.3.0-preview.1
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          Development preview for Android 8.0 and later.
 
-          - Search installed apps inline, reorder Favorites, and hide or restore apps.
-          - Hold empty space to open Widgets and Launcher settings. Add, reorder, and resize supported widgets.
-          - Customize icon style, size, and shape, plus app-label size and typeface. Dark mode follows Android.
-          - App Lock uses the device screen credential for launches from Still. It does not lock apps system-wide.
+          - Optional Chats inbox for active messaging notifications, including inline text replies where supported. Previews are off by default; no chat history is stored or uploaded.
+          - Enter launches the first visible search match. Undo restores hidden apps or apps removed from Favorites.
+          - Settings backup and restore, an optional left-side alphabet rail, and App info and supported shortcuts on long-press.
 
-          Open Still and choose **Set as Home** after installing.
+          This is a prerelease. If you have v0.2.0 or an earlier development build, uninstall it before installing this APK because the signing keys differ. Uninstalling clears local launcher settings and widgets. Real messaging replies still need Android device testing.
           NOTES
-          )
-          if [[ "$apk" == *-debug.apk ]]; then
-            notes+=$'\n\nThis APK uses a temporary development signing key. To upgrade from v0.1.0, uninstall the old build before installing v0.2.0. Uninstalling clears local Favorites, widgets, and launcher settings.'
-          fi
-          gh release create v0.2.0 "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Still v0.2.0' --notes "$notes"
+          gh release create "$tag" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Still v0.3.0 Preview 1' --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"

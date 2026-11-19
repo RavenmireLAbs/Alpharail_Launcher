@@ -19,4 +19,22 @@ On the launcher screen:
 
 Build a local test APK with JDK 17, Gradle 8.9 and Android SDK 35: `gradle -p android assembleDebug`. The Android APK workflow builds and checks the APK signature. If release signing secrets are unavailable, the workflow produces an installable APK signed with a temporary development key. A later APK signed with a different key requires uninstalling this build first. Release signing uses the repository secrets `STILL_KEYSTORE_BASE64` and `STILL_STORE_PASSWORD`; reuse the same key for updates.
 
-On Linux x86-64 without an Android SDK installation, `android/scripts/package-apk.sh build/Still-v0.2.0-debug.apk` packages the app with pinned tools. It uses Java 21 (a JDK or JRE), Python 3, curl, OpenSSL, and standard shell utilities. GitHub Actions uses this path to publish v0.2.0 after merge.
+On Linux x86-64 without an Android SDK installation, `android/scripts/package-apk.sh build/Still-v0.3.0-debug.apk` packages the app with pinned tools. It uses Java 21 (a JDK or JRE), Python 3, curl, OpenSSL, and standard shell utilities. GitHub Actions uses this same packaging path.
+
+## Search, long-press, and backups
+
+- Press **Enter** or the keyboard's **Search** key to launch the first visible search result. App Lock still applies.
+- Tap **Undo** after hiding apps or removing a Favorite to restore it without opening Settings.
+- Hold an app to open its Android **App info** or one of its supported shortcuts. Shortcuts require Still to be the default Home app and the installed app to expose them.
+- Under **Launcher settings → Alphabet side**, choose **Left** or **Right**.
+- **Launcher settings → Backup and restore** exports Favorites in order, hidden apps, and appearance. Import asks before replacing those settings. Widgets and App Lock stay on the device and are not included. Browser preview backups are separate from Android backups.
+
+## Persistent release signing
+
+The published development builds up through v0.2.0 used temporary keys. Switching to a persistent key requires a one-time uninstall; export settings first if the installed build offers that feature. Never commit or share the signing key. Generate and retain one PKCS#12 keystore with alias `still`, for example with `keytool -genkeypair -storetype PKCS12 -keystore still-release.p12 -alias still -keyalg RSA -keysize 3072 -validity 10000`. Store a secure offline backup.
+
+In GitHub Actions settings, configure `STILL_KEYSTORE_BASE64` (the base64-encoded keystore) and `STILL_STORE_PASSWORD` as repository secrets, plus `STILL_CERTIFICATE_SHA256` as a repository variable. The fingerprint is the `SHA256` certificate fingerprint printed by `keytool -list -v -storetype PKCS12 -keystore still-release.p12 -alias still`. Keep the same certificate pinned across releases. After bumping `versionCode` and `versionName` in `android/app/build.gradle`, run **Android APK** on `main` with **publish** enabled. The workflow refuses to publish without persistent signing and rejects a certificate fingerprint mismatch. Ordinary builds do not publish, except for the explicitly labeled v0.3.0 Preview 1 prerelease on main.
+
+## Optional Chats inbox
+
+Tap **Chats**, choose **Enable Chats**, and grant **Still Chats** notification access in Android settings. Return to Still and open Chats. It shows active message notifications, not conversation history. Use **Refresh** for new or dismissed notifications. **Reply** appears only when the source notification supports a text reply; use **Open app** for photos, attachments, or unsupported replies. Still does not store or upload message contents. Previews are off by default, hidden and App Locked apps are excluded, and **Chat settings** lets you filter apps or turn Chats off. Revoke Still Chats notification access in Android settings when you no longer need it. The browser preview uses fictional messages.
