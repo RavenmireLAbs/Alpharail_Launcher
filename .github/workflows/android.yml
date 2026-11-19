@@ -1,0 +1,47 @@
+name: Android APK
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build and verify signed APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.STILL_KEYSTORE_BASE64 }}
+          STILL_STORE_PASSWORD: ${{ secrets.STILL_STORE_PASSWORD }}
+        run: |
+          apk=Still-v0.1.0-debug.apk
+          if [[ -n "$KEYSTORE_BASE64" && -n "$STILL_STORE_PASSWORD" ]]; then
+            umask 077
+            export STILL_KEYSTORE="$RUNNER_TEMP/still.p12"
+            trap 'rm -f "$STILL_KEYSTORE"' EXIT
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$STILL_KEYSTORE"
+            apk=Still-v0.1.0.apk
+          fi
+          if ! android/scripts/package-apk.sh "$apk" > >(tee "$RUNNER_TEMP/package.log") 2>&1; then
+            tail -n 12 "$RUNNER_TEMP/package.log" | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          fi
+      - name: Publish v0.1.0
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v0.1.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
+          apk=$(echo Still-*.apk)
+          notes='First Still launcher release for Android 8.0 and later. Open Still after installation and choose Set as Home. Includes one alphabetical app list, Favorites, and Android widget hosting.'
+          if [[ "$apk" == *-debug.apk ]]; then
+            notes+=$'\n\nThis first APK uses a temporary development signing key. Uninstall it before installing a future build signed with a different key. Uninstalling clears local favorites and widgets.'
+          fi
+          gh release create v0.1.0 "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Still v0.1.0' --notes "$notes"
