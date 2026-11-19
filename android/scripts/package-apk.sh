@@ -19,13 +19,15 @@ chmod +x package/bin/x64/linux/aapt2
 tar xzf tools.tgz package/tools/d8.jar package/tools/apksigner.jar package/tools/ecj-3.45.0.jar
 mkdir classes dex
 mapfile -t sources < <(find "$source_dir/java" -name '*.java' | sort)
-if command -v javac >/dev/null; then
-  javac -source 8 -target 8 -classpath android.jar -d classes "${sources[@]}"
-else
-  java -jar package/tools/ecj-3.45.0.jar -8 -proc:none -classpath android.jar -d classes "${sources[@]}"
-fi
-mapfile -t classes < <(find classes -name '*.class' | sort)
-java -cp package/tools/d8.jar com.android.tools.r8.D8 --release --min-api 26 --lib android.jar --output dex "${classes[@]}"
+java -jar package/tools/ecj-3.45.0.jar -8 -proc:none -classpath android.jar -d classes "${sources[@]}"
+python3 - <<'PYZIP'
+from pathlib import Path
+from zipfile import ZipFile, ZIP_DEFLATED
+with ZipFile('classes.jar', 'w', ZIP_DEFLATED) as jar:
+    for path in sorted(Path('classes').rglob('*.class')):
+        jar.write(path, path.relative_to('classes'))
+PYZIP
+java -cp package/tools/d8.jar com.android.tools.r8.D8 --release --min-api 26 --lib android.jar --output dex classes.jar
 sed 's/<manifest /<manifest package="com.ravenmire.still" /' "$source_dir/AndroidManifest.xml" > AndroidManifest.xml
 package/bin/x64/linux/aapt2 link -I android.jar --manifest AndroidManifest.xml --min-sdk-version 26 --target-sdk-version 34 --version-code 1 --version-name 0.1.0 -o unsigned.apk
 python3 - <<'PY'
