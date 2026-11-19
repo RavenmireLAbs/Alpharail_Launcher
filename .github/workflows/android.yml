@@ -21,27 +21,37 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.STILL_KEYSTORE_BASE64 }}
           STILL_STORE_PASSWORD: ${{ secrets.STILL_STORE_PASSWORD }}
         run: |
-          apk=Still-v0.1.0-debug.apk
+          apk=Still-v0.2.0-debug.apk
           if [[ -n "$KEYSTORE_BASE64" && -n "$STILL_STORE_PASSWORD" ]]; then
             umask 077
             export STILL_KEYSTORE="$RUNNER_TEMP/still.p12"
             trap 'rm -f "$STILL_KEYSTORE"' EXIT
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$STILL_KEYSTORE"
-            apk=Still-v0.1.0.apk
+            apk=Still-v0.2.0.apk
           fi
           if ! android/scripts/package-apk.sh "$apk" > >(tee "$RUNNER_TEMP/package.log") 2>&1; then
             tail -n 12 "$RUNNER_TEMP/package.log" | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           fi
-      - name: Publish v0.1.0
+      - name: Publish v0.2.0
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v0.1.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
+          if gh release view v0.2.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
           apk=$(echo Still-*.apk)
-          notes='First Still launcher release for Android 8.0 and later. Open Still after installation and choose Set as Home. Includes one alphabetical app list, Favorites, and Android widget hosting.'
+          notes=$(cat <<'NOTES'
+          Still v0.2.0 for Android 8.0 and later.
+
+          - Search installed apps inline, reorder Favorites, and hide or restore apps.
+          - Hold empty space to open Widgets and Launcher settings. Add, reorder, and resize supported widgets.
+          - Customize icon style, size, and shape, plus app-label size and typeface. Dark mode follows Android.
+          - App Lock uses the device screen credential for launches from Still. It does not lock apps system-wide.
+
+          Open Still and choose **Set as Home** after installing.
+          NOTES
+          )
           if [[ "$apk" == *-debug.apk ]]; then
-            notes+=$'\n\nThis first APK uses a temporary development signing key. Uninstall it before installing a future build signed with a different key. Uninstalling clears local favorites and widgets.'
+            notes+=$'\n\nThis APK uses a temporary development signing key. To upgrade from v0.1.0, uninstall the old build before installing v0.2.0. Uninstalling clears local Favorites, widgets, and launcher settings.'
           fi
-          gh release create v0.1.0 "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Still v0.1.0' --notes "$notes"
+          gh release create v0.2.0 "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Still v0.2.0' --notes "$notes"

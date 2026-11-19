@@ -29,7 +29,7 @@ with ZipFile('classes.jar', 'w', ZIP_DEFLATED) as jar:
 PYZIP
 java -cp package/tools/d8.jar com.android.tools.r8.D8 --release --min-api 26 --lib android.jar --output dex classes.jar
 sed 's/<manifest /<manifest package="com.ravenmire.still" /' "$source_dir/AndroidManifest.xml" > AndroidManifest.xml
-package/bin/x64/linux/aapt2 link -I android.jar --manifest AndroidManifest.xml --min-sdk-version 26 --target-sdk-version 34 --version-code 1 --version-name 0.1.0 -o unsigned.apk
+package/bin/x64/linux/aapt2 link -I android.jar --manifest AndroidManifest.xml --min-sdk-version 26 --target-sdk-version 34 --version-code 2 --version-name 0.2.0 -o unsigned.apk
 python3 - <<'PY'
 from zipfile import ZipFile, ZIP_DEFLATED
 with ZipFile('unsigned.apk', 'a', ZIP_DEFLATED) as apk:
