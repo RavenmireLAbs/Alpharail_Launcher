@@ -12,7 +12,6 @@ import android.service.notification.StatusBarNotification;
 import org.json.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.graphics.ColorMatrix;
@@ -65,13 +64,11 @@ public class HomeActivity extends Activity {
     };
 
     @Override public void onCreate(Bundle state) {
-        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
-        if (dark) setTheme(android.R.style.Theme_Material_NoActionBar);
         super.onCreate(state);
-        paper = dark ? 0xff1b221a : 0xfff5f7ef;
-        ink = dark ? 0xffecf2e7 : 0xff20261e;
-        moss = dark ? 0xffb8cea9 : 0xff4c6340;
-        dividerColor = dark ? 0xff394638 : 0xffd9e0d2;
+        paper = 0xffffffff;
+        ink = 0xff202124;
+        moss = 0xff52565b;
+        dividerColor = 0xffe1e4e7;
         prefs = getSharedPreferences("still", MODE_PRIVATE);
         host = new AppWidgetHost(this, 101);
         widgets = AppWidgetManager.getInstance(this);
@@ -85,7 +82,7 @@ public class HomeActivity extends Activity {
         }
         getWindow().setStatusBarColor(paper);
         getWindow().setNavigationBarColor(paper);
-        getWindow().getDecorView().setSystemUiVisibility(dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         if (prefs.getBoolean("welcome", false)) home(state == null ? 0 : state.getInt("scroll")); else welcome();
     }
     @Override protected void onSaveInstanceState(Bundle state) {
@@ -124,7 +121,15 @@ public class HomeActivity extends Activity {
         TextView title = text("Make room\nfor less.", 53, ink); title.setTypeface(null, Typeface.BOLD); root.addView(title);
         TextView detail = text("Every app, one screen.\n\nSearch or scroll the alphabetical list. Hold an empty area for widgets and launcher settings.", 17, moss);
         detail.setPadding(0, dp(14), dp(8), dp(20)); root.addView(detail);
-        root.addView(action("Open launcher  →", () -> { prefs.edit().putBoolean("welcome", true).apply(); home(0); }));
+        Button open = new Button(this);
+        open.setText("Open launcher"); open.setAllCaps(false);
+        open.setTextColor(paper); open.setTextSize(16);
+        open.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        GradientDrawable fill = new GradientDrawable(); fill.setColor(ink); fill.setCornerRadius(dp(12));
+        open.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x40ffffff), fill, null));
+        open.setMinHeight(dp(52)); open.setPadding(dp(18), dp(8), dp(18), dp(8));
+        open.setOnClickListener(v -> { prefs.edit().putBoolean("welcome", true).apply(); home(0); });
+        root.addView(open, new LinearLayout.LayoutParams(-1, -2));
     }
     private void home(int y) {
         welcome = false; base();
@@ -381,22 +386,39 @@ public class HomeActivity extends Activity {
         showMenu("Widgets", labels, actions);
     }
     private void showSettings() {
-        showMenu("Launcher settings", Arrays.asList("Icon style", "Icon size", "Icon shape", "Font size", "Font shape", "Hidden apps", "App lock", "Reorder Favorites", "Alphabet side", "Backup and restore", "Set as Home"), Arrays.asList(
-            () -> setting("Icon style", "iconStyle", new String[]{"Original", "Monochrome", "Initials"}, 0),
-            () -> setting("Icon size", "iconSize", new String[]{"Small", "Default", "Large"}, 1),
-            () -> setting("Icon shape", "iconShape", new String[]{"Original", "Rounded square", "Circle", "Square"}, 0),
-            () -> setting("Font size", "fontSize", new String[]{"Small", "Default", "Large", "Extra large"}, 1),
-            () -> setting("Font shape", "fontShape", new String[]{"System", "Rounded", "Serif", "Monospace"}, 0),
-            this::showHiddenApps, this::requestLockSettings, this::reorderFavorites, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0), this::backupMenu, this::setHome));
+        showMenu("Launcher settings", Arrays.asList("Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Set as Home"), Arrays.asList(
+            this::showIconSettings, this::showFontSettings, this::showListSettings, this::showPrivacySettings, this::backupMenu, this::setHome));
     }
-    private void setting(String title, String key, String[] values, int fallback) {
+    private void showIconSettings() {
+        showSettingsGroup("Icons", Arrays.asList("Icon style", "Icon size", "Icon shape"), Arrays.asList(
+            () -> setting("Icon style", "iconStyle", new String[]{"Original", "Monochrome", "Initials"}, 0, this::showIconSettings),
+            () -> setting("Icon size", "iconSize", new String[]{"Small", "Default", "Large"}, 1, this::showIconSettings),
+            () -> setting("Icon shape", "iconShape", new String[]{"Original", "Rounded square", "Circle", "Square"}, 0, this::showIconSettings)));
+    }
+    private void showFontSettings() {
+        showSettingsGroup("Fonts", Arrays.asList("Font size", "Typeface"), Arrays.asList(
+            () -> setting("Font size", "fontSize", new String[]{"Small", "Default", "Large", "Extra large"}, 1, this::showFontSettings),
+            () -> setting("Typeface", "fontShape", new String[]{"System", "Rounded", "Serif", "Monospace"}, 0, this::showFontSettings)));
+    }
+    private void showListSettings() {
+        showSettingsGroup("App list", Arrays.asList("Reorder Favorites", "Alphabet side"), Arrays.asList(
+            this::reorderFavorites, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0, this::showListSettings)));
+    }
+    private void showPrivacySettings() {
+        showSettingsGroup("Privacy", Arrays.asList("Hidden apps", "App lock"), Arrays.asList(this::showHiddenApps, this::requestLockSettings));
+    }
+    private void showSettingsGroup(String title, List<String> labels, List<Runnable> actions) {
+        new AlertDialog.Builder(this).setTitle(title).setItems(labels.toArray(new String[0]), (d,i) -> actions.get(i).run())
+            .setNegativeButton("Back", (d,w) -> showSettings()).show();
+    }
+    private void setting(String title, String key, String[] values, int fallback, Runnable parent) {
         new AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(values, prefs.getInt(key, fallback), (d,i) -> {
             prefs.edit().putInt(key, i).apply();
-            d.dismiss(); placeRail(); refresh(); showSettings();
-        }).setNegativeButton("Back", (d,w) -> showSettings()).show();
+            d.dismiss(); placeRail(); refresh(); parent.run();
+        }).setNegativeButton("Back", (d,w) -> parent.run()).show();
     }
     private void showHiddenApps() {
-        showAppChoices("Hidden apps", "Checked apps are hidden from Still, but stay installed.", "hidden", this::showSettings);
+        showAppChoices("Hidden apps", "Checked apps are hidden from Still, but stay installed.", "hidden", this::showPrivacySettings);
     }
     private void showAppChoices(String title, String explanation, String pref, Runnable back) {
         Set<String> chosen = saved(pref);
@@ -686,7 +708,7 @@ public class HomeActivity extends Activity {
         pending = -1; refresh();
     }
     private boolean chatAllowed(String app) {
-        if (saved("locked").contains(app) || saved("chatExcluded").contains(app)) return false;
+        if (!ChatNotifications.isMessagingApp(this, app) || saved("locked").contains(app) || saved("chatExcluded").contains(app)) return false;
         for (String hidden : saved("hidden")) if (hidden.startsWith(app + "/")) return false;
         return true;
     }
@@ -739,7 +761,8 @@ public class HomeActivity extends Activity {
                 if (body != null) { TextView preview = text(chatText(body), 14, ink); preview.setMaxLines(4); rows.addView(preview); }
             } else rows.addView(text("Message preview hidden", 14, ink));
             LinearLayout actions = new LinearLayout(this); rows.addView(actions);
-            if (n.contentIntent != null && item.getPackageName().equals(n.contentIntent.getCreatorPackage())) actions.addView(action("Open app", () -> performChatAction(item.getKey(), null)), new LinearLayout.LayoutParams(0, dp(44), 1));
+            actions.addView(action("Open app", () -> openChatApp(item.getPackageName())), new LinearLayout.LayoutParams(0, dp(44), 1));
+            if (chatContentIntent(item) != null) actions.addView(action("Open chat", () -> openChat(item.getKey(), item.getPackageName())), new LinearLayout.LayoutParams(0, dp(44), 1));
             if (ChatNotifications.replyAction(item) != null) actions.addView(action("Reply", () -> showChatReply(item)), new LinearLayout.LayoutParams(0, dp(44), 1));
             View separator = new View(this); separator.setBackgroundColor(dividerColor); rows.addView(separator, new LinearLayout.LayoutParams(-1, dp(1)));
             if (++count == 50) break;
@@ -756,23 +779,49 @@ public class HomeActivity extends Activity {
             }).create();
         dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE); dialog.show();
     }
+    private PendingIntent chatContentIntent(StatusBarNotification item) {
+        PendingIntent open = item.getNotification().contentIntent;
+        if (open == null || !item.getPackageName().equals(open.getCreatorPackage())) return null;
+        return Build.VERSION.SDK_INT >= 31 && !open.isActivity() ? null : open;
+    }
+    private void openChatApp(String packageName) {
+        if (!chatEnabled() || !chatAllowed(packageName)) return;
+        try {
+            Intent target = getPackageManager().getLaunchIntentForPackage(packageName);
+            if (target != null) { startActivity(target); return; }
+            for (ResolveInfo app : apps) if (packageName.equals(app.activityInfo.packageName)) {
+                startActivity(Intent.makeMainActivity(component(app))); return;
+            }
+        } catch (ActivityNotFoundException | SecurityException ignored) { }
+        Toast.makeText(this, "Could not open " + chatAppName(packageName), Toast.LENGTH_SHORT).show();
+    }
+    private void openChat(String key, String packageName) {
+        if (!chatEnabled() || !chatAllowed(packageName)) return;
+        for (StatusBarNotification item : ChatNotifications.current()) {
+            if (!key.equals(item.getKey()) || !packageName.equals(item.getPackageName())) continue;
+            PendingIntent open = chatContentIntent(item);
+            if (open != null) try {
+                if (Build.VERSION.SDK_INT >= 34) {
+                    ActivityOptions options = ActivityOptions.makeBasic();
+                    options.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                    open.send(this, 0, null, null, null, null, options.toBundle());
+                } else open.send();
+                return;
+            } catch (PendingIntent.CanceledException | SecurityException ignored) { }
+            break;
+        }
+        openChatApp(packageName);
+    }
     private void performChatAction(String key, String reply) {
         if (chatEnabled()) for (StatusBarNotification item : ChatNotifications.current()) {
             if (!key.equals(item.getKey()) || !chatAllowed(item.getPackageName())) continue;
-            try {
-                if (reply == null) {
-                    PendingIntent open = item.getNotification().contentIntent;
-                    if (open != null && item.getPackageName().equals(open.getCreatorPackage())) { open.send(); return; }
-                } else {
-                    Notification.Action action = ChatNotifications.replyAction(item);
-                    if (action != null) {
-                        RemoteInput input = ChatNotifications.replyInput(action);
-                        Intent response = new Intent(); Bundle results = new Bundle(); results.putCharSequence(input.getResultKey(), reply);
-                        RemoteInput.addResultsToIntent(new RemoteInput[]{input}, response, results);
-                        action.actionIntent.send(this, 0, response);
-                        Toast.makeText(this, "Reply passed to " + chatAppName(item.getPackageName()), Toast.LENGTH_SHORT).show(); return;
-                    }
-                }
+            Notification.Action action = ChatNotifications.replyAction(item);
+            if (action != null) try {
+                RemoteInput input = ChatNotifications.replyInput(action);
+                Intent response = new Intent(); Bundle results = new Bundle(); results.putCharSequence(input.getResultKey(), reply);
+                RemoteInput.addResultsToIntent(new RemoteInput[]{input}, response, results);
+                action.actionIntent.send(this, 0, response);
+                Toast.makeText(this, "Reply passed to " + chatAppName(item.getPackageName()), Toast.LENGTH_SHORT).show(); return;
             } catch (PendingIntent.CanceledException | SecurityException ignored) { }
             break;
         }
@@ -786,10 +835,15 @@ public class HomeActivity extends Activity {
             () -> { prefs.edit().putBoolean("chatsEnabled", false).putBoolean("chatPreviews", false).apply(); startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }));
     }
     private void showChatApps() {
-        Set<String> excluded = saved("chatExcluded"); Set<String> packages = new LinkedHashSet<>(excluded);
+        Set<String> excluded = saved("chatExcluded"); Set<String> packages = new LinkedHashSet<>();
         for (StatusBarNotification item : ChatNotifications.current()) packages.add(item.getPackageName());
-        for (ResolveInfo app : apps) packages.add(app.activityInfo.packageName);
+        for (ResolveInfo app : apps) if (ChatNotifications.isMessagingApp(this, app.activityInfo.packageName)) packages.add(app.activityInfo.packageName);
         List<String> entries = new ArrayList<>(packages); entries.sort(Comparator.comparing(this::chatAppName, Collator.getInstance()));
+        if (entries.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Included apps").setMessage("No supported messaging apps are installed.")
+                .setPositiveButton("Back", (d,w) -> showChatSettings()).show();
+            return;
+        }
         String[] names = new String[entries.size()]; boolean[] flags = new boolean[entries.size()];
         for (int i = 0; i < names.length; i++) { names[i] = chatAppName(entries.get(i)); flags[i] = !excluded.contains(entries.get(i)); }
         new AlertDialog.Builder(this).setTitle("Include message notifications from")
@@ -878,7 +932,7 @@ public class HomeActivity extends Activity {
         if (request == CONFIRM_LOCK_SETTINGS) {
             boolean requested = pendingLockSettings; pendingLockSettings = false;
             if (requested && result == RESULT_OK) {
-                showAppChoices("App lock", "Checked apps require your device PIN, pattern, or password when opened from Still. This does not block other ways of opening an app.", "locked", this::showSettings);
+                showAppChoices("App lock", "Checked apps require your device PIN, pattern, or password when opened from Still. This does not block other ways of opening an app.", "locked", this::showPrivacySettings);
             }
         }
     }
