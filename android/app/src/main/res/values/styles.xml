@@ -1,0 +1,9 @@
+<resources>
+    <style name="StillTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#42464D</item>
+        <item name="android:windowBackground">#FFFFFF</item>
+        <item name="android:colorBackground">#FFFFFF</item>
+        <item name="android:colorBackgroundFloating">#FFFFFF</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+</resources>

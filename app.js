@@ -121,31 +121,52 @@ function widgetSettings() {
 }
 function launcherSettings() {
   menu('Launcher settings', [
-    ['Icon style', () => appearanceSetting('Icon style', 'iconStyle', ['Original', 'Monochrome', 'Initials'])],
-    ['Icon size', () => appearanceSetting('Icon size', 'iconSize', ['Small', 'Default', 'Large'], 1)],
-    ['Icon shape', () => appearanceSetting('Icon shape', 'iconShape', ['Original', 'Rounded square', 'Circle', 'Square'])],
-    ['Font size', () => appearanceSetting('Font size', 'fontSize', ['Small', 'Default', 'Large', 'Extra large'], 1)],
-    ['Font shape', () => appearanceSetting('Font shape', 'fontShape', ['System', 'Rounded', 'Serif', 'Monospace'])],
+    ['Icons', iconSettings],
+    ['Fonts', fontSettings],
+    ['App list', listSettings],
+    ['Privacy', privacySettings],
+    ['Backup and restore', backupMenu],
+  ]);
+}
+function settingsGroup(title, entries) { menu(title, [...entries, ['Back', launcherSettings]]); }
+function iconSettings() {
+  settingsGroup('Icons', [
+    ['Icon style', () => appearanceSetting('Icon style', 'iconStyle', ['Original', 'Monochrome', 'Initials'], 0, iconSettings)],
+    ['Icon size', () => appearanceSetting('Icon size', 'iconSize', ['Small', 'Default', 'Large'], 1, iconSettings)],
+    ['Icon shape', () => appearanceSetting('Icon shape', 'iconShape', ['Original', 'Rounded square', 'Circle', 'Square'], 0, iconSettings)],
+  ]);
+}
+function fontSettings() {
+  settingsGroup('Fonts', [
+    ['Font size', () => appearanceSetting('Font size', 'fontSize', ['Small', 'Default', 'Large', 'Extra large'], 1, fontSettings)],
+    ['Typeface', () => appearanceSetting('Typeface', 'fontShape', ['System', 'Rounded', 'Serif', 'Monospace'], 0, fontSettings)],
+  ]);
+}
+function privacySettings() {
+  settingsGroup('Privacy', [
     ['Hidden apps', () => appChoices('Hidden apps', 'Checked apps are hidden from Still.', hidden, values => {
       const added = values.filter(name => !hidden.includes(name)); hidden = values;
       if (added.length) showUndo(added.length === 1 ? 'App hidden' : 'Apps hidden', () => {
         hidden = hidden.filter(name => !added.includes(name)); update();
       });
     })],
-    ['Alphabet side', () => appearanceSetting('Alphabet side', 'railSide', ['Right', 'Left'])],
-    ['Backup and restore', backupMenu],
     ['App lock', () => appChoices('App lock', 'Preview only. The native app uses your Android screen lock.', locked, values => { locked = values; })],
+  ]);
+}
+function listSettings() {
+  settingsGroup('App list', [
+    ['Alphabet side', () => appearanceSetting('Alphabet side', 'railSide', ['Right', 'Left'], 0, listSettings)],
     ['Reorder Favorites', () => {
       const visible = favorites.filter(name => !hidden.includes(name));
       menu('Reorder Favorites', visible.map(name => [name, () => favoriteMenu(name)]), visible.length ? undefined : hint('Star apps to add them to Favorites.'));
     }],
   ]);
 }
-function appearanceSetting(title, key, labels, fallback = 0) {
+function appearanceSetting(title, key, labels, fallback, parent) {
   const checked = appearance[key] ?? fallback;
-  menu(title, labels.map((label, index) => [`${index === checked ? '✓  ' : ''}${label}`, () => {
-    appearance[key] = index; update(); launcherSettings();
-  }]));
+  menu(title, [...labels.map((label, index) => [`${index === checked ? '✓  ' : ''}${label}`, () => {
+    appearance[key] = index; update(); parent();
+  }]), ['Back', parent]]);
 }
 function appChoices(title, detail, selected, apply) {
   const values = new Set(selected), content = document.createElement('div'), choices = document.createElement('div');
@@ -364,6 +385,7 @@ function showChats() {
     const detail = hint(chatPreviews ? `${chat.sender}: ${chat.message}` : 'Message preview hidden');
     const actions = document.createElement('div'); actions.className = 'chat-actions';
     actions.append(button('Open app', () => { dialog.close(); openDemo(chat.app); }, `Open ${chat.app}`));
+    actions.append(button('Open chat', () => { dialog.close(); openDemo(`${chat.app}: ${chat.sender}`); }, `Open chat in ${chat.app}`));
     if (chat.reply) actions.append(button('Reply', () => showDemoReply(chat), `Reply via ${chat.app}`));
     row.append(name, detail, actions); rows.append(row);
   }
