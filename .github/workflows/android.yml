@@ -13,43 +13,21 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-      - name: Locate or install Android SDK
-        run: |
-          sdk="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          manager=$(find "$sdk" -name sdkmanager -type f -print -quit 2>/dev/null || true)
-          if [[ -z "$manager" ]]; then
-            sdk="$RUNNER_TEMP/android-sdk"
-            mkdir -p "$sdk/cmdline-tools"
-            if ! curl --fail --location --retry 2 --max-time 60 https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o "$RUNNER_TEMP/android-tools.zip"; then
-              echo '::error::No SDK manager is preinstalled and the runner cannot download it from dl.google.com.'
-              exit 1
-            fi
-            unzip -q "$RUNNER_TEMP/android-tools.zip" -d "$sdk/cmdline-tools"
-            manager="$sdk/cmdline-tools/cmdline-tools/bin/sdkmanager"
-            yes | "$manager" --sdk_root="$sdk" --licenses >/dev/null || true
-          fi
-          "$manager" --sdk_root="$sdk" 'platforms;android-35' 'build-tools;35.0.0'
-          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
-      - name: Build signed APK
+          java-version: '21'
+      - name: Build and verify signed APK
         env:
           KEYSTORE_BASE64: ${{ secrets.STILL_KEYSTORE_BASE64 }}
           STILL_STORE_PASSWORD: ${{ secrets.STILL_STORE_PASSWORD }}
         run: |
-          if [[ -z "$KEYSTORE_BASE64" || -z "$STILL_STORE_PASSWORD" ]]; then
-            gradle -p android assembleDebug
-            cp android/app/build/outputs/apk/debug/app-debug.apk Still-v0.1.0-debug.apk
-          else
+          apk=Still-v0.1.0-debug.apk
+          if [[ -n "$KEYSTORE_BASE64" && -n "$STILL_STORE_PASSWORD" ]]; then
+            umask 077
             export STILL_KEYSTORE="$RUNNER_TEMP/still.p12"
+            trap 'rm -f "$STILL_KEYSTORE"' EXIT
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$STILL_KEYSTORE"
-            gradle -p android assembleRelease
-            cp android/app/build/outputs/apk/release/app-release.apk Still-v0.1.0.apk
+            apk=Still-v0.1.0.apk
           fi
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs Still-*.apk
+          android/scripts/package-apk.sh "$apk"
       - uses: actions/upload-artifact@v4
         with:
           name: still-apk
@@ -73,6 +51,6 @@ jobs:
           apk=$(echo Still-*.apk)
           notes='First Still launcher release for Android 8.0 and later. Open Still after installation and choose Set as Home. Includes one alphabetical app list, Favorites, and Android widget hosting.'
           if [[ "$apk" == *-debug.apk ]]; then
-            notes+=$'\n\nThis first APK is debug-signed. If a future APK uses a different signing key, uninstall this version before installing it; local favorites and widgets will reset.'
+            notes+=$'\n\nThis first APK uses a temporary development signing key. Uninstall it before installing a future build signed with a different key. Uninstalling clears local favorites and widgets.'
           fi
           gh release create v0.1.0 "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Still v0.1.0' --notes "$notes"
