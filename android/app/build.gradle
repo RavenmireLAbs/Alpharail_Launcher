@@ -1,0 +1,27 @@
+plugins { id 'com.android.application' version '8.7.3' }
+android {
+    namespace 'com.ravenmire.still'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.ravenmire.still'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+    }
+    signingConfigs {
+        distribution {
+            if (System.getenv('STILL_KEYSTORE')) {
+                storeFile file(System.getenv('STILL_KEYSTORE'))
+                storePassword System.getenv('STILL_STORE_PASSWORD')
+                keyAlias 'still'
+                keyPassword System.getenv('STILL_STORE_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (System.getenv('STILL_KEYSTORE')) signingConfig signingConfigs.distribution
+        }
+    }
+}
