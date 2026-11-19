@@ -52,6 +52,58 @@ function moves(order, name, visible = order) {
     update();
   }]);
 }
+let undoTimer;
+function clearUndo() {
+  clearTimeout(undoTimer);
+  $('undo-bar').hidden = true;
+  $('undo-button').onclick = null;
+}
+function showUndo(message, restore) {
+  clearUndo();
+  $('undo-message').textContent = message;
+  $('undo-bar').hidden = false;
+  $('undo-button').onclick = () => { clearUndo(); restore(); };
+  undoTimer = setTimeout(clearUndo, 6500);
+}
+const sampleShortcuts = new Map([['Messages', 'New message'], ['Camera', 'Take photo'], ['Maps', 'Search map']]);
+function appMenu(name, inFavorites) {
+  const items = [['App info', () => menu('App info', [], hint(`${name} is a demo app. On Android this opens system App info.`))]];
+  const shortcut = sampleShortcuts.get(name);
+  if (shortcut) items.push([shortcut, () => openDemoTarget(name, shortcut)]);
+  if (inFavorites) items.push(...moves(favorites, name, favorites.filter(app => !hidden.includes(app))));
+  menu(name, items);
+}
+const appearanceMax = {iconStyle:2, iconSize:2, iconShape:3, fontSize:3, fontShape:3, railSide:1};
+function backupMenu() {
+  menu('Backup and restore', [['Export settings', () => {
+    const backup = JSON.stringify({format:'still-preview-settings', version:1, favorites, hidden, appearance}, null, 2);
+    const url = URL.createObjectURL(new Blob([backup], {type:'application/json'}));
+    const link = document.createElement('a'); link.href = url; link.download = 'still-preview-settings.json'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }], ['Import settings', () => $('backup-file').click()]], hint('Preview backups are separate from Android backups. Widgets and App Lock stay unchanged.'));
+}
+$('backup-file').onchange = async event => {
+  const file = event.target.files[0]; event.target.value = '';
+  if (!file) return;
+  let backup;
+  try {
+    if (file.size > 1024 * 1024) throw new Error();
+    backup = JSON.parse(await file.text());
+    if (backup?.format !== 'still-preview-settings' || backup.version !== 1) throw new Error();
+    for (const key of ['favorites', 'hidden']) {
+      if (!Array.isArray(backup[key]) || !backup[key].every(name => icons.has(name))) throw new Error();
+    }
+    if (!backup.appearance || Array.isArray(backup.appearance) || typeof backup.appearance !== 'object') throw new Error();
+    for (const [key, value] of Object.entries(backup.appearance)) {
+      if (!Object.hasOwn(appearanceMax, key) || !Number.isInteger(value) || value < 0 || value > appearanceMax[key]) throw new Error();
+    }
+  } catch {
+    menu('Could not restore settings', [], hint('Choose a valid Still preview backup.')); return;
+  }
+  menu('Restore settings?', [['Restore', () => {
+    clearUndo(); favorites = [...new Set(backup.favorites)]; hidden = [...new Set(backup.hidden)]; appearance = backup.appearance; update();
+  }]], hint('Replace Favorites, hidden apps and appearance? Widgets and App Lock stay unchanged.'));
+};
 function favoriteMenu(name) {
   const entries = moves(favorites, name, favorites.filter(app => !hidden.includes(app)));
   menu(name, entries, entries.length ? undefined : hint('Add another favorite before reordering.'));
@@ -74,7 +126,14 @@ function launcherSettings() {
     ['Icon shape', () => appearanceSetting('Icon shape', 'iconShape', ['Original', 'Rounded square', 'Circle', 'Square'])],
     ['Font size', () => appearanceSetting('Font size', 'fontSize', ['Small', 'Default', 'Large', 'Extra large'], 1)],
     ['Font shape', () => appearanceSetting('Font shape', 'fontShape', ['System', 'Rounded', 'Serif', 'Monospace'])],
-    ['Hidden apps', () => appChoices('Hidden apps', 'Checked apps are hidden from Still.', hidden, values => { hidden = values; })],
+    ['Hidden apps', () => appChoices('Hidden apps', 'Checked apps are hidden from Still.', hidden, values => {
+      const added = values.filter(name => !hidden.includes(name)); hidden = values;
+      if (added.length) showUndo(added.length === 1 ? 'App hidden' : 'Apps hidden', () => {
+        hidden = hidden.filter(name => !added.includes(name)); update();
+      });
+    })],
+    ['Alphabet side', () => appearanceSetting('Alphabet side', 'railSide', ['Right', 'Left'])],
+    ['Backup and restore', backupMenu],
     ['App lock', () => appChoices('App lock', 'Preview only. The native app uses your Android screen lock.', locked, values => { locked = values; })],
     ['Reorder Favorites', () => {
       const visible = favorites.filter(name => !hidden.includes(name));
@@ -104,23 +163,32 @@ function openDemo(name) {
   $('toast').textContent = `${name} · Demo app`;
   clearTimeout(timer); timer = setTimeout(() => $('toast').textContent = '', 2200);
 }
+function openDemoTarget(name, shortcut) {
+  const run = () => openDemo(shortcut ? `${name}: ${shortcut}` : name);
+  if (!locked.includes(name)) run();
+  else menu(`Unlock ${name}`, [['Simulate unlock', run]], hint('Preview only. No device credential is requested here.'));
+}
 function makeRow(name, icon, inFavorites = false) {
   const row = document.createElement('div'); row.className = 'app-row';
   const isLocked = locked.includes(name);
-  const open = button(`${name}${isLocked ? '  🔒' : ''}`, () => {
-    if (!isLocked) openDemo(name);
-    else menu(`Unlock ${name}`, [['Simulate unlock', () => openDemo(name)]], hint('Preview only. No device credential is requested here.'));
-  }, `${name}${isLocked ? ', locked' : ''}`);
+  const open = button(`${name}${isLocked ? '  🔒' : ''}`, () => openDemoTarget(name), `${name}${isLocked ? ', locked' : ''}`);
+  open.dataset.app = name;
+  open.dataset.favoriteRow = inFavorites ? 'yes' : 'no';
   open.className = 'app';
   const glyph = document.createElement('span'); glyph.className = 'icon';
   glyph.textContent = appearance.iconStyle === 2 ? [...name][0] : icon;
   glyph.style.setProperty('--icon-hue', String(name.charCodeAt(0) * 37 % 360));
   glyph.setAttribute('aria-hidden', 'true'); open.prepend(glyph);
-  if (inFavorites) open.oncontextmenu = event => { event.preventDefault(); favoriteMenu(name); };
+
   const selected = favorites.includes(name);
   const toggle = button(selected ? '★' : '☆', () => {
+    const oldIndex = favorites.indexOf(name);
     favorites = selected ? favorites.filter(app => app !== name) : [...favorites, name];
     update();
+    if (selected) showUndo('Removed from Favorites', () => {
+      if (!favorites.includes(name)) favorites.splice(oldIndex, 0, name);
+      update();
+    });
     const replacement = [...list.querySelectorAll('.favorite-toggle')].find(node => node.dataset.name === name);
     replacement?.focus({preventScroll: true});
   }, `${selected ? 'Unfavorite' : 'Favorite'} ${name}`);
@@ -166,6 +234,7 @@ function hint(value) {
 }
 function render(y) {
   const launcher = $('launcher');
+  launcher.dataset.railSide = appearance.railSide === 1 ? 'left' : 'right';
   launcher.dataset.iconStyle = appearance.iconStyle ?? 0;
   launcher.dataset.iconShape = appearance.iconShape ?? 0;
   launcher.style.setProperty('--preview-icon-size', `${[19, 23, 32][appearance.iconSize ?? 1]}px`);
@@ -205,6 +274,13 @@ function searchChanged() {
   render(next ? 0 : beforeSearch);
 }
 search.addEventListener('input', searchChanged);
+search.addEventListener('keydown', event => {
+  const query = filterKey(search.value);
+  if (event.key !== 'Enter' || event.isComposing || event.repeat || !query) return;
+  event.preventDefault();
+  const match = all.find(([name]) => !hidden.includes(name) && filterKey(name).includes(query));
+  if (match) { search.blur(); openDemoTarget(match[0]); }
+});
 $('clear-search').onclick = () => { search.value = ''; searchChanged(); search.focus({preventScroll: true}); };
 const launcher = $('launcher'), emptyArea = $('empty-area');
 let press;
@@ -215,11 +291,23 @@ function cancelPress() {
 function isBlank(target) {
   return target === emptyArea || !target.closest('button, input, label, .app-row, .widget, nav');
 }
+let suppressAppClick;
 launcher.addEventListener('pointerdown', event => {
-  if (!event.isPrimary || event.button !== 0 || !isBlank(event.target)) return;
-  cancelPress();
-  press = {x: event.clientX, y: event.clientY, timer: setTimeout(() => { cancelPress(); launcherOptions(); }, 500)};
+  if (!event.isPrimary || event.button !== 0) return;
+  const app = event.target.closest('.app');
+  if (!app && !isBlank(event.target)) return;
+  cancelPress(); suppressAppClick = undefined;
+  press = {x: event.clientX, y: event.clientY, timer: setTimeout(() => {
+    cancelPress();
+    if (app) { suppressAppClick = app; appMenu(app.dataset.app, app.dataset.favoriteRow === 'yes'); }
+    else launcherOptions();
+  }, 500)};
 });
+launcher.addEventListener('click', event => {
+  if (suppressAppClick && event.detail && event.target.closest('.app') === suppressAppClick) {
+    event.preventDefault(); event.stopImmediatePropagation(); suppressAppClick = undefined;
+  }
+}, true);
 for (const event of ['resize', 'scroll']) window.addEventListener(event, () => { if (dialog.open) alignDialog(); }, {passive: true});
 window.addEventListener('pointermove', event => {
   if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) cancelPress();
@@ -227,7 +315,11 @@ window.addEventListener('pointermove', event => {
 for (const event of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(event, cancelPress);
 list.addEventListener('scroll', cancelPress, {passive: true});
 launcher.addEventListener('contextmenu', event => {
-  if (isBlank(event.target)) { event.preventDefault(); cancelPress(); launcherOptions(); }
+  const app = event.target.closest('.app');
+  if (app) {
+    event.preventDefault(); cancelPress();
+    if (!dialog.open) appMenu(app.dataset.app, app.dataset.favoriteRow === 'yes');
+  } else if (isBlank(event.target)) { event.preventDefault(); cancelPress(); launcherOptions(); }
 });
 emptyArea.onclick = event => { if (event.detail === 0) launcherOptions(); };
 dialog.addEventListener('click', event => {
@@ -238,8 +330,70 @@ dialog.addEventListener('click', event => {
 function showWelcome(show) {
   $('welcome').hidden = !show; $('launcher').hidden = show;
   $('toast').textContent = '';
+  if (show) clearUndo();
 }
 render(0);
 showWelcome(!sessionStorage.getItem('still-welcomed'));
 $('begin').onclick = () => { sessionStorage.setItem('still-welcomed', '1'); showWelcome(false); list.focus({preventScroll:true}); };
 $('restart').onclick = () => { showWelcome(true); $('begin').focus({preventScroll:true}); };
+
+// The preview uses fictional notifications and never asks for Android access.
+const chatSamples = [
+  {app:'WhatsApp', sender:'Sam', message:'Are we still meeting at six?', reply:true},
+  {app:'Telegram', sender:'Alex', message:'I sent the details to the group.', reply:true},
+  {app:'Instagram', sender:'Jordan', message:'Sent you a photo.', reply:false},
+  {app:'Messenger', sender:'Taylor', message:'Thanks for checking in!', reply:true},
+];
+let chatEnabled = read('chats-enabled', false), chatPreviews = read('chat-previews', false), chatExcluded = read('chat-excluded', []);
+function saveChats() {
+  localStorage.setItem('still-chats-enabled', JSON.stringify(chatEnabled));
+  localStorage.setItem('still-chat-previews', JSON.stringify(chatPreviews));
+  localStorage.setItem('still-chat-excluded', JSON.stringify(chatExcluded));
+}
+function showChats() {
+  if (!chatEnabled) {
+    menu('Chats', [['Enable demo Chats', () => { chatEnabled = true; saveChats(); showChats(); }]], hint('See message notifications in one place. This preview uses fictional messages. Android requires optional notification access.'));
+    return;
+  }
+  const rows = document.createElement('div'); rows.className = 'chat-rows';
+  rows.append(hint('Demo inbox · Active notifications only'));
+  const visible = chatSamples.filter(chat => !chatExcluded.includes(chat.app) && !hidden.includes(chat.app) && !locked.includes(chat.app));
+  for (const chat of visible) {
+    const row = document.createElement('section'); row.className = 'chat-row';
+    const name = document.createElement('strong'); name.textContent = chat.app;
+    const detail = hint(chatPreviews ? `${chat.sender}: ${chat.message}` : 'Message preview hidden');
+    const actions = document.createElement('div'); actions.className = 'chat-actions';
+    actions.append(button('Open app', () => { dialog.close(); openDemo(chat.app); }, `Open ${chat.app}`));
+    if (chat.reply) actions.append(button('Reply', () => showDemoReply(chat), `Reply via ${chat.app}`));
+    row.append(name, detail, actions); rows.append(row);
+  }
+  if (!visible.length) rows.append(hint('No active messages from included apps.'));
+  menu('Chats', [['Chat settings', chatSettings]], rows);
+}
+function showDemoReply(chat) {
+  const text = document.createElement('textarea'); text.placeholder = 'Write a text reply'; text.setAttribute('aria-label', 'Reply text');
+  menu(`Reply via ${chat.app}`, [['Send demo reply', () => {
+    if (!text.value.trim()) { showChats(); return; }
+    $('toast').textContent = `Demo reply to ${chat.app}`;
+    clearTimeout(timer); timer = setTimeout(() => $('toast').textContent = '', 2200);
+  }], ['Back to Chats', showChats]], text);
+  text.focus();
+}
+function chatSettings() {
+  menu('Chat settings', [
+    [chatPreviews ? 'Hide message previews' : 'Show message previews', () => { chatPreviews = !chatPreviews; saveChats(); showChats(); }],
+    ['Included apps', () => {
+      const choices = document.createElement('div'); choices.className = 'app-choices';
+      const excluded = new Set(chatExcluded);
+      for (const chat of chatSamples) {
+        const label = document.createElement('label'), input = document.createElement('input');
+        input.type = 'checkbox'; input.checked = !excluded.has(chat.app);
+        input.onchange = () => { if (input.checked) excluded.delete(chat.app); else excluded.add(chat.app); };
+        label.append(input, chat.app); choices.append(label);
+      }
+      menu('Included apps', [['Save', () => { chatExcluded = [...excluded]; saveChats(); showChats(); }]], choices);
+    }],
+    ['Turn off Chats', () => { chatEnabled = false; chatPreviews = false; saveChats(); }],
+  ]);
+}
+$('chats').onclick = showChats;

@@ -3,6 +3,11 @@
 set -euo pipefail
 umask 077
 source_dir=$(cd -- "$(dirname -- "$0")/../app/src/main" && pwd)
+gradle_file="$source_dir/../../build.gradle"
+version_name=$(sed -n "s/^[[:space:]]*versionName '\([0-9][0-9.]*\)'.*/\1/p" "$gradle_file")
+version_code=$(sed -n 's/^[[:space:]]*versionCode \([0-9][0-9]*\).*/\1/p' "$gradle_file")
+[[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$version_code" =~ ^[1-9][0-9]*$ ]]
+
 output=$(realpath -m "${1:?Provide an output APK path}")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -29,7 +34,7 @@ with ZipFile('classes.jar', 'w', ZIP_DEFLATED) as jar:
 PYZIP
 java -cp package/tools/d8.jar com.android.tools.r8.D8 --release --min-api 26 --lib android.jar --output dex classes.jar
 sed 's/<manifest /<manifest package="com.ravenmire.still" /' "$source_dir/AndroidManifest.xml" > AndroidManifest.xml
-package/bin/x64/linux/aapt2 link -I android.jar --manifest AndroidManifest.xml --min-sdk-version 26 --target-sdk-version 34 --version-code 2 --version-name 0.2.0 -o unsigned.apk
+package/bin/x64/linux/aapt2 link -I android.jar --manifest AndroidManifest.xml --min-sdk-version 26 --target-sdk-version 34 --version-code "$version_code" --version-name "$version_name" -o unsigned.apk
 python3 - <<'PY'
 from zipfile import ZipFile, ZIP_DEFLATED
 with ZipFile('unsigned.apk', 'a', ZIP_DEFLATED) as apk:

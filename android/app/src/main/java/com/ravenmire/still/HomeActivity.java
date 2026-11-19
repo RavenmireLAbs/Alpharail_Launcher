@@ -5,6 +5,13 @@ import android.app.role.RoleManager;
 import android.appwidget.*;
 import android.content.*;
 import android.content.pm.ResolveInfo;
+import android.content.pm.LauncherApps;
+import android.content.pm.ShortcutInfo;
+import android.net.Uri;
+import android.service.notification.StatusBarNotification;
+import org.json.*;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
@@ -34,7 +41,13 @@ public class HomeActivity extends Activity {
     private AppWidgetHost host;
     private AppWidgetManager widgets;
     private int pending = -1;
-    private String pendingLaunch;
+    private String pendingLaunch, pendingShortcut;
+    private LinearLayout undoBar, appArea;
+    private Runnable undoAction;
+    private final Runnable expireUndo = this::dismissUndo;
+    private static final int EXPORT_SETTINGS = 23, IMPORT_SETTINGS = 24;
+    private static final String[] APPEARANCE = {"iconStyle", "iconSize", "iconShape", "fontSize", "fontShape", "railSide"};
+    private static final int[] DEFAULTS = {0, 1, 0, 1, 0, 0}, MAXIMUMS = {2, 2, 3, 3, 3, 1};
     private boolean pendingLockSettings;
     private static final int CONFIRM_LAUNCH = 21, CONFIRM_LOCK_SETTINGS = 22;
     private boolean welcome;
@@ -65,6 +78,7 @@ public class HomeActivity extends Activity {
         if (state != null) {
             pending = state.getInt("pending", -1);
             pendingLaunch = state.getString("pendingLaunch");
+            pendingShortcut = state.getString("pendingShortcut");
             pendingLockSettings = state.getBoolean("pendingLockSettings");
             query = state.getString("query", "");
             beforeSearch = state.getInt("beforeSearch");
@@ -78,6 +92,7 @@ public class HomeActivity extends Activity {
         super.onSaveInstanceState(state);
         state.putInt("pending", pending);
         state.putString("pendingLaunch", pendingLaunch);
+        state.putString("pendingShortcut", pendingShortcut);
         state.putBoolean("pendingLockSettings", pendingLockSettings);
         state.putString("query", query);
         state.putInt("beforeSearch", beforeSearch);
@@ -88,6 +103,7 @@ public class HomeActivity extends Activity {
     @Override protected void onResume() { super.onResume(); if (!welcome && scroll != null && reloadApps()) refresh(); }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); if (!welcome && scroll != null) { clearSearch(); scroll.post(() -> scroll.scrollTo(0, 0)); } }
 
+    @Override protected void onDestroy() { handler.removeCallbacks(expireUndo); super.onDestroy(); }
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
     private LinearLayout column() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); return v; }
     private TextView text(String value, int size, int color) {
@@ -120,6 +136,7 @@ public class HomeActivity extends Activity {
         bar.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1));
         RoleManager role = android.os.Build.VERSION.SDK_INT >= 29 ? getSystemService(RoleManager.class) : null;
         if (role == null || !role.isRoleHeld(RoleManager.ROLE_HOME)) bar.addView(action("Set as Home", this::setHome));
+        TextView chats = action("Chats", this::showChats); chats.setPadding(dp(10), 0, dp(10), 0); bar.addView(chats);
         root.addView(bar);
         LinearLayout searchBar = new LinearLayout(this);
         search = new EditText(this);
@@ -165,12 +182,24 @@ public class HomeActivity extends Activity {
             public void afterTextChanged(Editable value) {}
         });
         search.setOnEditorActionListener((view, id, event) -> {
-            if (id != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) return false;
+            if (event != null) {
+                if (event.getKeyCode() != KeyEvent.KEYCODE_ENTER && event.getKeyCode() != KeyEvent.KEYCODE_NUMPAD_ENTER) return false;
+                if (event.getAction() != KeyEvent.ACTION_DOWN || event.getRepeatCount() > 0) return true;
+            } else if (id != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) return false;
+            String filter = searchKey(query);
+            if (!filter.isEmpty()) {
+                Set<String> hidden = saved("hidden");
+                for (ResolveInfo app : apps) if (matches(app, filter, hidden)) { openApp(app); return true; }
+            }
             dismissKeyboard(); return true;
         });
-        LinearLayout area = new LinearLayout(this); root.addView(area, new LinearLayout.LayoutParams(-1, 0, 1));
-        scroll = new ScrollView(this); list = column(); scroll.addView(list); area.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
-        indexScroll = new ScrollView(this); indexScroll.setVerticalScrollBarEnabled(false); index = column(); indexScroll.addView(index); area.addView(indexScroll, new LinearLayout.LayoutParams(dp(40), -1));
+        appArea = new LinearLayout(this); appArea.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); root.addView(appArea, new LinearLayout.LayoutParams(-1, 0, 1));
+        scroll = new ScrollView(this); list = column(); scroll.addView(list); list.setLayoutDirection(getResources().getConfiguration().getLayoutDirection());
+        appArea.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
+        indexScroll = new ScrollView(this); indexScroll.setVerticalScrollBarEnabled(false); index = column(); indexScroll.addView(index); appArea.addView(indexScroll, new LinearLayout.LayoutParams(dp(40), -1));
+        placeRail();
+        undoBar = new LinearLayout(this); undoBar.setVisibility(View.GONE); root.addView(undoBar);
+        dismissUndo();
         emptyArea(root); emptyArea(list); emptyArea(date); emptyArea(clock); emptyArea(title);
         root.requestFocus();
         reloadApps();
@@ -261,7 +290,7 @@ public class HomeActivity extends Activity {
         if (!filter.isEmpty()) {
             section("SEARCH RESULTS", null, "");
             boolean any = false;
-            for (ResolveInfo app : apps) if (!hidden.contains(key(app)) && searchKey(label(app)).contains(filter)) {
+            for (ResolveInfo app : apps) if (matches(app, filter, hidden)) {
                 row(app, favorites.contains(key(app)), false); any = true;
             }
             if (!any) list.addView(text("No matching apps", 15, moss));
@@ -286,6 +315,30 @@ public class HomeActivity extends Activity {
             }
         }
         scroll.post(() -> scroll.scrollTo(0, y));
+    }
+    private boolean matches(ResolveInfo app, String filter, Set<String> hidden) {
+        return !hidden.contains(key(app)) && searchKey(label(app)).contains(filter);
+    }
+    private void placeRail() {
+        int position = prefs.getInt("railSide", 0) == 1 ? 0 : 1;
+        if (appArea.indexOfChild(indexScroll) == position) return;
+        appArea.removeView(indexScroll); appArea.addView(indexScroll, position);
+    }
+    private void dismissUndo() {
+        handler.removeCallbacks(expireUndo); undoAction = null;
+        if (undoBar != null) { undoBar.setVisibility(View.GONE); undoBar.removeAllViews(); }
+    }
+    private void showUndo(String message, Runnable restore) {
+        dismissUndo(); undoAction = restore;
+        TextView label = text(message, 14, ink);
+        label.setGravity(Gravity.CENTER_VERTICAL); label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        undoBar.addView(label, new LinearLayout.LayoutParams(0, dp(48), 1));
+        undoBar.addView(action("Undo", () -> {
+            Runnable undo = undoAction; dismissUndo(); if (undo != null) undo.run();
+        }));
+        undoBar.setVisibility(View.VISIBLE);
+        android.view.accessibility.AccessibilityManager manager = getSystemService(android.view.accessibility.AccessibilityManager.class);
+        handler.postDelayed(expireUndo, Build.VERSION.SDK_INT >= 29 ? manager.getRecommendedTimeoutMillis(6500, android.view.accessibility.AccessibilityManager.FLAG_CONTENT_TEXT | android.view.accessibility.AccessibilityManager.FLAG_CONTENT_CONTROLS) : 6500);
     }
     private String searchKey(String value) {
         return java.text.Normalizer.normalize(value.trim().toLowerCase(Locale.ROOT), java.text.Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
@@ -328,18 +381,18 @@ public class HomeActivity extends Activity {
         showMenu("Widgets", labels, actions);
     }
     private void showSettings() {
-        showMenu("Launcher settings", Arrays.asList("Icon style", "Icon size", "Icon shape", "Font size", "Font shape", "Hidden apps", "App lock", "Reorder Favorites", "Set as Home"), Arrays.asList(
+        showMenu("Launcher settings", Arrays.asList("Icon style", "Icon size", "Icon shape", "Font size", "Font shape", "Hidden apps", "App lock", "Reorder Favorites", "Alphabet side", "Backup and restore", "Set as Home"), Arrays.asList(
             () -> setting("Icon style", "iconStyle", new String[]{"Original", "Monochrome", "Initials"}, 0),
             () -> setting("Icon size", "iconSize", new String[]{"Small", "Default", "Large"}, 1),
             () -> setting("Icon shape", "iconShape", new String[]{"Original", "Rounded square", "Circle", "Square"}, 0),
             () -> setting("Font size", "fontSize", new String[]{"Small", "Default", "Large", "Extra large"}, 1),
             () -> setting("Font shape", "fontShape", new String[]{"System", "Rounded", "Serif", "Monospace"}, 0),
-            this::showHiddenApps, this::requestLockSettings, this::reorderFavorites, this::setHome));
+            this::showHiddenApps, this::requestLockSettings, this::reorderFavorites, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0), this::backupMenu, this::setHome));
     }
     private void setting(String title, String key, String[] values, int fallback) {
         new AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(values, prefs.getInt(key, fallback), (d,i) -> {
             prefs.edit().putInt(key, i).apply();
-            d.dismiss(); refresh(); showSettings();
+            d.dismiss(); placeRail(); refresh(); showSettings();
         }).setNegativeButton("Back", (d,w) -> showSettings()).show();
     }
     private void showHiddenApps() {
@@ -366,7 +419,13 @@ public class HomeActivity extends Activity {
         content.addView(scrollChoices, new LinearLayout.LayoutParams(-1, dp(Math.min(300, Math.max(60, apps.size() * 48)))));
         new AlertDialog.Builder(this).setTitle(title).setView(content)
             .setNegativeButton("Back", (d,w) -> back.run())
-            .setPositiveButton("Save", (d,w) -> { store(pref, chosen); refresh(); }).show();
+            .setPositiveButton("Save", (d,w) -> {
+                Set<String> added = new HashSet<>(chosen); added.removeAll(saved(pref));
+                store(pref, chosen); refresh();
+                if ("hidden".equals(pref) && !added.isEmpty()) showUndo(added.size() == 1 ? "App hidden" : "Apps hidden", () -> {
+                    Set<String> current = saved("hidden"); current.removeAll(added); store("hidden", current); refresh();
+                });
+            }).show();
     }
     private void reorderFavorites() {
         List<String> order = favoriteOrder(); order.removeAll(saved("hidden"));
@@ -409,13 +468,43 @@ public class HomeActivity extends Activity {
         Toast.makeText(this, "Couldn't verify your screen lock", Toast.LENGTH_SHORT).show();
         return false;
     }
-    private void openApp(ResolveInfo app) {
+    private void showAppActions(ResolveInfo app, boolean inFavorites) {
         dismissKeyboard();
-        String id = key(app);
-        if (!lockedApps.contains(app.activityInfo.packageName)) { launch(component(app)); return; }
+        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+        labels.add("App info"); actions.add(() -> {
+            try { startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.activityInfo.packageName, null))); }
+            catch (ActivityNotFoundException | SecurityException ignored) { Toast.makeText(this, "App info unavailable", Toast.LENGTH_SHORT).show(); }
+        });
+        if (inFavorites) addMoveActions(labels, actions, "favorites", favoriteOrder(), key(app), saved("hidden"));
+        LauncherApps manager = getSystemService(LauncherApps.class);
+        try {
+            if (manager != null && manager.hasShortcutHostPermission()) {
+                LauncherApps.ShortcutQuery request = new LauncherApps.ShortcutQuery().setPackage(app.activityInfo.packageName)
+                    .setQueryFlags(LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC | LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST);
+                List<ShortcutInfo> shortcuts = manager.getShortcuts(request, android.os.Process.myUserHandle());
+                if (shortcuts != null) for (ShortcutInfo shortcut : shortcuts) {
+                    if (!shortcut.isEnabled() || shortcut.getShortLabel() == null || (shortcut.getActivity() != null && !component(app).equals(shortcut.getActivity()))) continue;
+                    labels.add(shortcut.getShortLabel().toString()); actions.add(() -> openApp(app, shortcut.getId()));
+                }
+            }
+        } catch (IllegalStateException | SecurityException ignored) { }
+        showMenu(label(app), labels, actions);
+    }
+    private void openApp(ResolveInfo app) { openApp(app, null); }
+    private void openApp(ResolveInfo app, String shortcut) {
+        dismissKeyboard();
+        if (!lockedApps.contains(app.activityInfo.packageName)) { launchTarget(component(app), shortcut); return; }
         if (pendingLaunch != null || pendingLockSettings) return;
-        pendingLaunch = id;
-        if (!requestCredential(CONFIRM_LAUNCH, "Unlock " + label(app))) pendingLaunch = null;
+        pendingLaunch = key(app); pendingShortcut = shortcut;
+        if (!requestCredential(CONFIRM_LAUNCH, "Unlock " + label(app))) { pendingLaunch = null; pendingShortcut = null; }
+    }
+    private void launchTarget(ComponentName component, String shortcut) {
+        if (component == null) return;
+        if (shortcut == null) { launch(component); return; }
+        try { getSystemService(LauncherApps.class).startShortcut(component.getPackageName(), shortcut, null, null, android.os.Process.myUserHandle()); }
+        catch (ActivityNotFoundException | IllegalStateException | SecurityException e) {
+            Toast.makeText(this, "Shortcut unavailable", Toast.LENGTH_SHORT).show();
+        }
     }
     private void launch(ComponentName component) {
         if (component == null) return;
@@ -525,12 +614,20 @@ public class HomeActivity extends Activity {
         iconSpace.setMarginEnd(dp(10)); launchRow.addView(icon, iconSpace);
         launchRow.addView(open, new LinearLayout.LayoutParams(0, -1, 1));
         line.addView(launchRow, new LinearLayout.LayoutParams(0, dp(height), 1));
-        if (inFavorites) launchRow.setOnLongClickListener(v -> { showFavoriteMenu(app); return true; });
+        launchRow.setOnLongClickListener(v -> { showAppActions(app, inFavorites); return true; });
         TextView star = action(favorite ? "★" : "☆", () -> {
             Set<String> favorites = saved("favorites"); String key = key(app);
             List<String> order = favoriteOrder();
-            if (favorites.remove(key)) order.remove(key); else { favorites.add(key); order.add(key); }
+            int oldIndex = order.indexOf(key);
+            boolean removed = favorites.remove(key);
+            if (removed) order.remove(key); else { favorites.add(key); order.add(key); }
             store("favorites", favorites); saveOrder("favorites", order); refresh();
+            if (removed) showUndo("Removed from Favorites", () -> {
+                List<String> updated = favoriteOrder(); Set<String> members = saved("favorites");
+                if (!members.add(key)) return;
+                updated.add(Math.max(0, Math.min(oldIndex, updated.size())), key);
+                store("favorites", members); saveOrder("favorites", updated); refresh();
+            });
         });
         star.setGravity(Gravity.CENTER); star.setContentDescription((favorite ? "Unfavorite " : "Favorite ") + label(app)); line.addView(star, new LinearLayout.LayoutParams(dp(44), dp(height)));
         list.addView(line);
@@ -588,14 +685,195 @@ public class HomeActivity extends Activity {
         else host.deleteAppWidgetId(pending);
         pending = -1; refresh();
     }
+    private boolean chatAllowed(String app) {
+        if (saved("locked").contains(app) || saved("chatExcluded").contains(app)) return false;
+        for (String hidden : saved("hidden")) if (hidden.startsWith(app + "/")) return false;
+        return true;
+    }
+    private String chatAppName(String packageName) {
+        try { return getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(packageName, 0)).toString(); }
+        catch (android.content.pm.PackageManager.NameNotFoundException ignored) { return packageName; }
+    }
+    private boolean chatEnabled() { return prefs.getBoolean("chatsEnabled", false) && getSystemService(NotificationManager.class)
+        .isNotificationListenerAccessGranted(new ComponentName(this, ChatNotifications.class)); }
+    private void showChats() {
+        dismissKeyboard();
+        if (!chatEnabled()) {
+            new AlertDialog.Builder(this).setTitle("Chats")
+                .setMessage("Optional: show active messaging notifications and reply where the app supports it. Android notification access can read all notifications. Still only displays message notifications here, does not save or upload their contents, and cannot retrieve chat history. Photos and unsupported replies open in the original app.")
+                .setNegativeButton("Not now", null).setPositiveButton("Enable Chats", (d,w) -> {
+                    prefs.edit().putBoolean("chatsEnabled", true).apply();
+                    if (chatEnabled()) showChats(); else startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+                }).show();
+            return;
+        }
+        LinearLayout content = column(); content.setPadding(dp(18), dp(8), dp(18), dp(8));
+        TextView note = text("Active notifications only", 13, moss); content.addView(note);
+        ScrollView body = new ScrollView(this); LinearLayout rows = column(); body.addView(rows);
+        content.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout buttons = new LinearLayout(this); content.addView(buttons);
+        AlertDialog panel = new AlertDialog.Builder(this).setTitle("Chats").setView(content).setNegativeButton("Close", null).create();
+        Runnable redraw = () -> fillChats(rows);
+        buttons.addView(action("Refresh", redraw), new LinearLayout.LayoutParams(0, dp(44), 1));
+        buttons.addView(action("Chat settings", () -> { panel.dismiss(); showChatSettings(); }), new LinearLayout.LayoutParams(0, dp(44), 1));
+        panel.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        panel.show(); panel.getWindow().setLayout(-1, Math.min(dp(640), Math.round(getResources().getDisplayMetrics().heightPixels * .86f)));
+        redraw.run();
+    }
+    private void fillChats(LinearLayout rows) {
+        rows.removeAllViews();
+        boolean showText = prefs.getBoolean("chatPreviews", false);
+        int count = 0;
+        if (chatEnabled()) for (StatusBarNotification item : ChatNotifications.current()) {
+            if (!chatAllowed(item.getPackageName())) continue;
+            Notification n = item.getNotification();
+            rows.addView(text(chatAppName(item.getPackageName()), 15, moss));
+            if (showText && n.visibility != Notification.VISIBILITY_SECRET && n.extras != null) {
+                CharSequence title = n.extras.getCharSequence(Notification.EXTRA_TITLE), body = n.extras.getCharSequence(Notification.EXTRA_TEXT);
+                Parcelable[] messages = n.extras.getParcelableArray(Notification.EXTRA_MESSAGES);
+                if (messages != null && messages.length > 0 && messages[messages.length - 1] instanceof Bundle) {
+                    CharSequence latest = ((Bundle)messages[messages.length - 1]).getCharSequence("text");
+                    if (latest != null) body = latest;
+                }
+                if (title != null) rows.addView(text(chatText(title), 15, ink));
+                if (body != null) { TextView preview = text(chatText(body), 14, ink); preview.setMaxLines(4); rows.addView(preview); }
+            } else rows.addView(text("Message preview hidden", 14, ink));
+            LinearLayout actions = new LinearLayout(this); rows.addView(actions);
+            if (n.contentIntent != null && item.getPackageName().equals(n.contentIntent.getCreatorPackage())) actions.addView(action("Open app", () -> performChatAction(item.getKey(), null)), new LinearLayout.LayoutParams(0, dp(44), 1));
+            if (ChatNotifications.replyAction(item) != null) actions.addView(action("Reply", () -> showChatReply(item)), new LinearLayout.LayoutParams(0, dp(44), 1));
+            View separator = new View(this); separator.setBackgroundColor(dividerColor); rows.addView(separator, new LinearLayout.LayoutParams(-1, dp(1)));
+            if (++count == 50) break;
+        }
+        if (count == 0) rows.addView(text(ChatNotifications.available() ? "No active messages from included apps." : "Waiting for notification access. Try Refresh after enabling Still Chats in Android settings.", 15, ink));
+    }
+    private String chatText(CharSequence value) { String text = value.toString(); return text.length() > 600 ? text.substring(0, 600) + "…" : text; }
+    private void showChatReply(StatusBarNotification item) {
+        EditText reply = new EditText(this); reply.setHint("Write a text reply");
+        reply.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4000)});
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Reply via " + chatAppName(item.getPackageName())).setView(reply)
+            .setNegativeButton("Cancel", null).setPositiveButton("Send", (d,w) -> {
+                String message = reply.getText().toString().trim(); if (!message.isEmpty()) performChatAction(item.getKey(), message);
+            }).create();
+        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE); dialog.show();
+    }
+    private void performChatAction(String key, String reply) {
+        if (chatEnabled()) for (StatusBarNotification item : ChatNotifications.current()) {
+            if (!key.equals(item.getKey()) || !chatAllowed(item.getPackageName())) continue;
+            try {
+                if (reply == null) {
+                    PendingIntent open = item.getNotification().contentIntent;
+                    if (open != null && item.getPackageName().equals(open.getCreatorPackage())) { open.send(); return; }
+                } else {
+                    Notification.Action action = ChatNotifications.replyAction(item);
+                    if (action != null) {
+                        RemoteInput input = ChatNotifications.replyInput(action);
+                        Intent response = new Intent(); Bundle results = new Bundle(); results.putCharSequence(input.getResultKey(), reply);
+                        RemoteInput.addResultsToIntent(new RemoteInput[]{input}, response, results);
+                        action.actionIntent.send(this, 0, response);
+                        Toast.makeText(this, "Reply passed to " + chatAppName(item.getPackageName()), Toast.LENGTH_SHORT).show(); return;
+                    }
+                }
+            } catch (PendingIntent.CanceledException | SecurityException ignored) { }
+            break;
+        }
+        Toast.makeText(this, "This message action is no longer available", Toast.LENGTH_SHORT).show();
+    }
+    private void showChatSettings() {
+        showMenu("Chat settings", Arrays.asList(prefs.getBoolean("chatPreviews", false) ? "Hide message previews" : "Show message previews", "Included apps", "Android notification access", "Turn off Chats"), Arrays.asList(
+            () -> { prefs.edit().putBoolean("chatPreviews", !prefs.getBoolean("chatPreviews", false)).apply(); showChats(); },
+            this::showChatApps,
+            () -> startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)),
+            () -> { prefs.edit().putBoolean("chatsEnabled", false).putBoolean("chatPreviews", false).apply(); startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }));
+    }
+    private void showChatApps() {
+        Set<String> excluded = saved("chatExcluded"); Set<String> packages = new LinkedHashSet<>(excluded);
+        for (StatusBarNotification item : ChatNotifications.current()) packages.add(item.getPackageName());
+        for (ResolveInfo app : apps) packages.add(app.activityInfo.packageName);
+        List<String> entries = new ArrayList<>(packages); entries.sort(Comparator.comparing(this::chatAppName, Collator.getInstance()));
+        String[] names = new String[entries.size()]; boolean[] flags = new boolean[entries.size()];
+        for (int i = 0; i < names.length; i++) { names[i] = chatAppName(entries.get(i)); flags[i] = !excluded.contains(entries.get(i)); }
+        new AlertDialog.Builder(this).setTitle("Include message notifications from")
+            .setMultiChoiceItems(names, flags, (d,i,checked) -> { if (checked) excluded.remove(entries.get(i)); else excluded.add(entries.get(i)); })
+            .setNegativeButton("Cancel", null).setPositiveButton("Save", (d,w) -> { store("chatExcluded", excluded); showChats(); }).show();
+    }
+    private void backupMenu() {
+        showMenu("Backup and restore", Arrays.asList("Export settings", "Import settings"), Arrays.asList(
+            () -> startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/json").putExtra(Intent.EXTRA_TITLE, "still-settings.json"), EXPORT_SETTINGS),
+            () -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/json"), IMPORT_SETTINGS)));
+    }
+    private void exportSettings(Uri uri) throws IOException, JSONException {
+        JSONObject backup = new JSONObject(); backup.put("format", "still-settings"); backup.put("version", 1);
+        JSONObject looks = new JSONObject();
+        for (int i = 0; i < APPEARANCE.length; i++) looks.put(APPEARANCE[i], prefs.getInt(APPEARANCE[i], DEFAULTS[i]));
+        backup.put("appearance", looks);
+        List<String> favorites = favoriteOrder();
+        for (String id : new TreeSet<>(saved("favorites"))) if (!favorites.contains(id)) favorites.add(id);
+        backup.put("favorites", new JSONArray(favorites)); backup.put("hidden", new JSONArray(new TreeSet<>(saved("hidden"))));
+        try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+            if (out == null) throw new IOException("Backup file unavailable");
+            out.write(backup.toString(2).getBytes(StandardCharsets.UTF_8));
+        }
+    }
+    private List<String> backupApps(JSONObject backup, String name) throws JSONException {
+        JSONArray values = backup.getJSONArray(name);
+        if (values.length() > 5000) throw new JSONException("Too many app entries");
+        Set<String> result = new LinkedHashSet<>();
+        for (int i = 0; i < values.length(); i++) {
+            Object value = values.get(i);
+            if (!(value instanceof String) || ((String)value).length() > 512 || !((String)value).matches("[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+")) throw new JSONException("Invalid app ID");
+            ComponentName id = ComponentName.unflattenFromString((String)value);
+            if (id == null) throw new JSONException("Invalid component");
+            result.add(id.flattenToString());
+        }
+        return new ArrayList<>(result);
+    }
+    private void importSettings(Uri uri) throws IOException, JSONException {
+        JSONObject backup;
+        try (InputStream in = getContentResolver().openInputStream(uri); ByteArrayOutputStream data = new ByteArrayOutputStream()) {
+            if (in == null) throw new IOException("Backup file unavailable");
+            byte[] block = new byte[4096]; int size;
+            while ((size = in.read(block)) != -1) {
+                if (data.size() + size > 1024 * 1024) throw new IOException("Backup is too large");
+                data.write(block, 0, size);
+            }
+            backup = new JSONObject(data.toString("UTF-8"));
+        }
+        if (!"still-settings".equals(backup.get("format")) || !Integer.valueOf(1).equals(backup.get("version"))) throw new JSONException("Unsupported backup format");
+        List<String> favorites = backupApps(backup, "favorites"), hidden = backupApps(backup, "hidden");
+        JSONObject looks = backup.getJSONObject("appearance");
+        int[] values = new int[APPEARANCE.length];
+        for (int i = 0; i < APPEARANCE.length; i++) {
+            Object value = looks.get(APPEARANCE[i]);
+            if (!(value instanceof Integer) || (int)value < 0 || (int)value > MAXIMUMS[i]) throw new JSONException("Invalid appearance value");
+            values[i] = (int)value;
+        }
+        new AlertDialog.Builder(this).setTitle("Restore settings?")
+            .setMessage("Replace Favorites, hidden apps, and appearance with this backup? Widgets and App Lock will stay unchanged.")
+            .setNegativeButton("Cancel", null).setPositiveButton("Restore", (d,w) -> {
+                android.content.SharedPreferences.Editor edit = prefs.edit().putStringSet("favorites", new HashSet<>(favorites))
+                    .putString("favoritesOrder", String.join("\n", favorites)).putStringSet("hidden", new HashSet<>(hidden));
+                for (int i = 0; i < APPEARANCE.length; i++) edit.putInt(APPEARANCE[i], values[i]);
+                edit.apply(); dismissUndo(); placeRail(); refresh();
+            }).show();
+    }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request == 11 && pending != -1) { if (result == RESULT_OK) configureWidget(); else finishWidget(false); }
         if (request == 12) finishWidget(result == RESULT_OK);
         if (request == 13) home(scroll.getScrollY());
         if (request == CONFIRM_LAUNCH) {
-            String id = pendingLaunch; pendingLaunch = null;
-            if (id != null && result == RESULT_OK) launch(ComponentName.unflattenFromString(id));
+            String id = pendingLaunch, shortcut = pendingShortcut; pendingLaunch = null; pendingShortcut = null;
+            if (id != null && result == RESULT_OK) launchTarget(ComponentName.unflattenFromString(id), shortcut);
+        }
+        if ((request == EXPORT_SETTINGS || request == IMPORT_SETTINGS) && result == RESULT_OK && data != null && data.getData() != null) {
+            try {
+                if (request == EXPORT_SETTINGS) { exportSettings(data.getData()); Toast.makeText(this, "Settings exported", Toast.LENGTH_SHORT).show(); }
+                else importSettings(data.getData());
+            } catch (IOException | JSONException | SecurityException e) {
+                Toast.makeText(this, "Couldn't " + (request == EXPORT_SETTINGS ? "export settings" : "read a valid Still backup"), Toast.LENGTH_LONG).show();
+            }
         }
         if (request == CONFIRM_LOCK_SETTINGS) {
             boolean requested = pendingLockSettings; pendingLockSettings = false;
