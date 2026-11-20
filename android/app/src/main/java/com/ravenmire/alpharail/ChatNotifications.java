@@ -21,27 +21,32 @@ public final class ChatNotifications extends NotificationListenerService {
     static boolean isMessagingApp(Context context, String packageName) {
         return MESSAGING_PACKAGES.contains(packageName) || packageName.equals(Telephony.Sms.getDefaultSmsPackage(context));
     }
+    private ChatBubble bubble;
+    static void refreshBubble() { if (connected != null) { if (connected.bubble == null) connected.bubble = new ChatBubble(connected); connected.bubble.stop(); connected.bubble.update(); } }
     static final Set<Runnable> observers = new HashSet<>();
-    private void changed() { for (Runnable observer : new ArrayList<>(observers)) observer.run(); }
+    private void changed() { if (bubble != null) bubble.changed(); dotPackages = null; for (Runnable observer : new ArrayList<>(observers)) observer.run(); }
     @Override public void onNotificationPosted(StatusBarNotification item) {
-        if (item != null) changed();
+        if (item != null) { ChatHistory.capture(this, item); changed(); }
     }
     @Override public void onNotificationRemoved(StatusBarNotification item) { onNotificationPosted(item); }
     private static ChatNotifications connected;
-    @Override public void onListenerConnected() { connected = this; changed(); }
-    @Override public void onListenerDisconnected() { if (connected == this) connected = null; changed(); }
-    @Override public void onDestroy() { if (connected == this) { connected = null; changed(); } super.onDestroy(); }
+    @Override public void onListenerConnected() { connected = this; bubble = new ChatBubble(this); changed(); }
+    @Override public void onListenerDisconnected() { if (bubble != null) bubble.stop(); if (connected == this) connected = null; changed(); }
+    @Override public void onDestroy() { if (bubble != null) bubble.stop(); if (connected == this) { connected = null; changed(); } super.onDestroy(); }
 
     static boolean available() { return connected != null; }
+    private static Set<String> dotPackages;
     static boolean hasNotification(String packageName) {
-        if (connected == null) return false;
-        try {
-            StatusBarNotification[] items = connected.getActiveNotifications();
-            if (items != null) for (StatusBarNotification item : items)
-                if (Process.myUserHandle().equals(item.getUser()) && packageName.equals(item.getPackageName())
-                    && !item.isOngoing() && (item.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) == 0) return true;
-        } catch (RuntimeException ignored) { }
-        return false;
+        if (dotPackages == null) {
+            dotPackages = new HashSet<>();
+            if (connected != null) try {
+                StatusBarNotification[] items = connected.getActiveNotifications();
+                if (items != null) for (StatusBarNotification item : items)
+                    if (Process.myUserHandle().equals(item.getUser()) && !item.isOngoing()
+                        && (item.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) == 0) dotPackages.add(item.getPackageName());
+            } catch (RuntimeException ignored) { }
+        }
+        return dotPackages.contains(packageName);
     }
     static List<StatusBarNotification> current() {
         List<StatusBarNotification> messages = new ArrayList<>();
