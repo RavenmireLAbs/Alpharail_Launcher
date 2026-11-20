@@ -1,50 +1,50 @@
-# Alpharail — Minimal Android launcher
+# Alpharail
 
-Formerly **Still**. Alpharail uses `com.ravenmire.alpharail` and installs separately from Still. Export settings in Still and import them in Alpharail; widget bindings, App Lock, and notification access do not transfer.
+A minimal Android launcher built around **one alphabetical app list**. Drag the A–Z rail to jump to a letter, tap **★** for Favorites, or search without opening a separate app drawer.
 
-Alpharail is a browser prototype for a minimal Android launcher. The first visit shows a welcome panel. Continue to one vertically scrolling, alphabetical app list, or tap a letter to jump. Favorites and optional demo widgets sit above A on the same screen. App entries and widgets in this preview are simulated; the installable launcher is described below.
+**[Download the latest signed APK](https://github.com/RavenmireLAbs/Android-launcher/releases/latest)** · Android 8.0+ · `com.ravenmire.alpharail`
 
-Run locally with `python3 -m http.server 8000` and open `http://localhost:8000`.
+## Get started
 
-## Android app
+1. Download the `.apk` from the latest release and install it. Android may ask you to allow installs from the app that opened the file.
+2. Open **Alpharail** and choose **Set as Home**. You can switch back at any time in **Android Settings → Default apps → Home app**.
+3. Long-press empty space to open **Widgets** or **Launcher settings**. Long-press an app to rename it, hide it, add it to a Collection, or open its Android app info and supported shortcuts.
 
-The native launcher lives in `android/`. Install the signed APK from Releases on Android 8.0 or later, open Alpharail, and choose **Set as Home** to make it the default launcher. The star above A jumps to Favorites, where you can pin apps and add widgets from installed providers. You can switch back under Android Settings → Default apps → Home app.
+## Features
 
-On the launcher screen:
+- **A–Z navigation and offline search.** Tap or drag the alphabet rail, place it on either side, or press Enter to open the top visible search result. Clearing search returns you to your prior scroll position.
+- **Favorites, Collections, and widgets.** Pin apps above A, organize them into named groups, and show widgets separately or as a swipeable stack. Widgets can be resized when their provider supports it.
+- **Appearance.** White is the default; preview Black before applying. Customize icon style, size, and shape, or change the typeface and font size. Appearance presets can be shared without exporting app lists.
+- **Home shortcuts.** Tap the clock to open Clock or the date to open Calendar on supported devices.
+- **Privacy controls.** Hiding an app doesn’t uninstall it. App Lock uses Android screen-lock authentication for launches from Alpharail; it doesn’t lock apps system-wide.
 
-- **Search apps** filters the same list. Clearing search returns to your previous scroll position.
-- **Hold an empty area** below the search box or elsewhere on the launcher to open a bottom panel with **Widgets** and **Launcher settings**.
-- **Launcher settings** control icon style, size and shape, font size and typeface, Hidden apps, and Favorites order. Hiding apps does not uninstall them.
-- **Widgets** lets you add or manage widgets. Resize changes the height when the provider supports vertical resizing.
-- **App lock** uses the device PIN, pattern, or password to manage locked apps and open them from Alpharail. It does not lock apps system-wide. The browser only simulates unlocking.
-- **Launcher settings → Theme** lets you choose White (the default) or Black, independently of the Android system theme.
+### Optional Chats inbox
 
-Build a local test APK with JDK 17, Gradle 8.9 and Android SDK 35: `gradle -p android assembleDebug`. The Android APK workflow builds and checks the APK signature. If release signing secrets are unavailable, the workflow produces an installable APK signed with a temporary development key. A later APK signed with a different key requires uninstalling this build first. Release signing uses the repository secrets `STILL_KEYSTORE_BASE64` and `STILL_STORE_PASSWORD`; reuse the same key for updates.
+Open **Chats → Enable Chats**, then grant **Alpharail Chats** notification access in Android settings. The inbox updates while open and groups active notifications into conversations when the messaging app supplies a stable conversation ID. It doesn’t retrieve old chat history or save or upload message contents.
 
-On Linux x86-64 without an Android SDK installation, `android/scripts/package-apk.sh build/Alpharail-v0.3.0-debug.apk` packages the app with pinned tools. It uses Java 21 (a JDK or JRE), Python 3, curl, OpenSSL, and standard shell utilities. GitHub Actions uses this same packaging path.
+Previews are off by default. Hidden and App Locked apps are excluded. **Reply** and **Open conversation** only appear when a compatible notification action is available; **Open app** is separate. Use **Chat settings** to filter messaging apps or turn Chats off. You can revoke notification access in Android settings.
 
-## Search, long-press, and backups
+### Backups and upgrades
 
-- Press **Enter** or the keyboard's **Search** key to launch the first visible search result. App Lock still applies.
-- Tap or drag along the **alphabet rail** to move through the same app list. The letter indicator follows your selection and respects reduced-motion settings.
-- Tap **Undo** after hiding apps or removing a Favorite to restore it without opening Settings.
-- Hold an app to open its Android **App info** or one of its supported shortcuts. Shortcuts require Alpharail to be the default Home app and the installed app to expose them.
-- Under **Launcher settings → App list → Alphabet side**, choose **Left** or **Right**.
-- **Launcher settings → Backup and restore** exports Favorites in order, hidden apps, appearance, Collections, custom app names, and the widget stacking preference. Older backups still import. Appearance presets can be exported and imported separately without sharing app lists. Import asks before replacing those settings. Android backups also remember widget providers, order, and heights. Use **Widgets → Recover widgets** after importing to re-add them through Android’s normal permission and configuration screens. Alpharail shows how many are left, suggests the next widget, and lets you choose another or skip an unavailable widget. Widget contents, accounts, and App Lock are not included. Browser preview backups are separate from Android backups.
+**Launcher settings → Backup and restore** exports Favorites, hidden apps, appearance, Collections, custom app names, and widget layout information. After importing, use **Widgets → Recover widgets** to re-add widgets through Android. Backups don’t include widget contents, accounts, App Lock, or Chats notification access.
 
-## Persistent release signing
+- **Updating from signed Alpharail v0.3.4 or newer:** Install the newer APK over the existing app when it uses the same signing certificate.
+- **Updating from an old debug-signed Alpharail build:** Export settings first. Switching to the permanent signing key requires a one-time uninstall and reinstall.
+- **Moving from Still:** Alpharail installs separately. Export settings from Still, import them into Alpharail, and set Alpharail as your Home app.
 
-The published development builds up through v0.2.0 used temporary keys. Switching to a persistent key requires a one-time uninstall; export settings first if the installed build offers that feature. Never commit or share the signing key. Generate and retain one PKCS#12 keystore with alias `still`, for example with `keytool -genkeypair -storetype PKCS12 -keystore still-release.p12 -alias still -keyalg RSA -keysize 3072 -validity 10000`. Store a secure offline backup.
+## Browser demo and development
 
-In GitHub Actions settings, configure `STILL_KEYSTORE_BASE64` (the base64-encoded keystore) and `STILL_STORE_PASSWORD` as repository secrets, plus `STILL_CERTIFICATE_SHA256` as a repository variable. The fingerprint is the `SHA256` certificate fingerprint printed by `keytool -list -v -storetype PKCS12 -keystore still-release.p12 -alias still`. Keep the same certificate pinned across releases. After bumping `versionCode` and `versionName` in `android/app/build.gradle`, run **Android APK** on `main` with **publish** enabled. The workflow refuses to publish without persistent signing and rejects a certificate fingerprint mismatch. Ordinary builds do not publish, except for the explicitly labeled v0.3.0 Preview 3 prerelease on main.
+The browser demo uses simulated apps, widgets, and messages. Its backups are separate from Android backups. To run it locally, use `python3 -m http.server 8000` and open `http://localhost:8000`.
 
-## Optional Chats inbox
+- **Android SDK build:** Run `gradle -p android assembleDebug` with JDK 17, Gradle 8.9, and Android SDK 35.
+- **Linux x86-64 without the Android SDK:** Run `android/scripts/package-apk.sh build/Alpharail-debug.apk` with Java 21, Python 3, curl, and OpenSSL. This is also the packaging path used by CI.
 
-Tap **Chats**, choose **Enable Chats**, and grant **Alpharail Chats** notification access in Android settings. Return to Alpharail and open Chats. It shows active message notifications, not conversation history. Use **Refresh** for new or dismissed notifications. **Reply** appears only when the source notification supports a text reply. **Open chat** uses a supported notification link; **Open app** launches the messaging app directly, including when the link is unavailable. Alpharail does not store or upload message contents. Previews are off by default, hidden and App Locked apps are excluded, and **Chat settings** lets you filter supported messaging apps or turn Chats off. Revoke Alpharail Chats notification access in Android settings when you no longer need it. The browser preview uses fictional messages.
+### Release signing
 
-### Compact Favorites and home shortcuts
+Alpharail v0.3.4 introduced permanent signing. Keep the PKCS#12 keystore and its password backed up securely, and never commit either. The current workflow expects key alias `still` and the same password for the key and keystore.
 
-- Hold empty space and choose **Widgets → Stack widgets** to share one spot in Favorites. Swipe horizontally or use the previous/next controls; vertical swipes still scroll the launcher. Switch back to show widgets separately at any time.
-- Create named app groups under **Launcher settings → App list → Collections**. Collections appear in Favorites, follow your hidden-app and App Lock preferences, and do not affect the alphabetical list. Backups preserve Collections and the stacking preference, not live widget instances.
-- Choose **Icons → Icon style → Dots** for a quieter app list, or open **Theme** to preview the White and Black palettes before applying.
-- Tap the date to open Calendar where supported, or tap the time to open Clock. No calendar access is required.
+Configure repository Actions secrets `STILL_KEYSTORE_BASE64` and `STILL_STORE_PASSWORD`, and the Actions variable `STILL_CERTIFICATE_SHA256` using the public SHA-256 certificate fingerprint from `keytool -list -v`. Bump `versionCode` and `versionName` in `android/app/build.gradle`, then run **Android APK** on `main` with **publish** enabled. The workflow checks the certificate fingerprint before publishing. Ordinary CI builds do not publish releases.
+
+## License
+
+Alpharail is licensed under the [MIT License](LICENSE).
