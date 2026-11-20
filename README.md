@@ -26,6 +26,10 @@ Use **App: All** to filter the active inbox by messaging app. Each row shows the
 
 Previews are off by default. Hidden and App Locked apps are excluded. **Reply** and **Open conversation** only appear when a compatible notification action is available; **Open app** is separate. Use **Chat settings** to filter messaging apps or turn Chats off. You can revoke notification access in Android settings.
 
+### Updates
+
+Open **Launcher settings → Updates** to check for a newer signed APK or enable automatic checks. With automatic checks on, Alpharail checks GitHub at most once a day when opened. Downloads open in your browser and Android asks you to confirm installation; updates are not silently downloaded or installed.
+
 ### Backups and upgrades
 
 **Launcher settings → Backup and restore** exports Favorites, hidden apps, appearance, Collections, custom app names, and widget layout information. After importing, use **Widgets → Recover widgets** to re-add widgets through Android. Backups don’t include widget contents, accounts, App Lock, or Chats notification access.
