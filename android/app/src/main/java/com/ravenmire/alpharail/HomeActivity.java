@@ -234,6 +234,7 @@ public class HomeActivity extends Activity {
         if (Intent.ACTION_MAIN.equals(intent.getAction()) && intent.hasCategory(Intent.CATEGORY_HOME)) {
             // Home must close panels, not leave a full-screen dialog above the launcher.
             for (Dialog panel : new ArrayList<>(homePanels)) panel.dismiss();
+            closeInlineSettings();
             if (letterBubble != null) { letterBubble.animate().cancel(); letterBubble.setVisibility(View.GONE); }
         }
         if (!welcome && scroll != null) { clearSearch(); scroll.scrollTo(0, 0); }
@@ -277,6 +278,7 @@ public class HomeActivity extends Activity {
         });
     }
     private void base() {
+        inlineSettings = null; inlineSettingsBack = null;
         boolean clearWallpaperLayer = !welcome && homeShowsWallpaper() && bundledWallpaper() < 0;
         root = !welcome && homeShowsWallpaper() ? new LinearLayout(this) {
             @Override public void draw(android.graphics.Canvas canvas) {
@@ -285,7 +287,7 @@ public class HomeActivity extends Activity {
                 super.draw(canvas);
             }
             @Override protected void dispatchDraw(android.graphics.Canvas canvas) {
-                if (wallpaperOverlayCount == 0) super.dispatchDraw(canvas);
+                if (wallpaperOverlayCount == 0 && inlineSettings == null) super.dispatchDraw(canvas);
             }
         } : column();
         root.setOrientation(LinearLayout.VERTICAL);
@@ -755,6 +757,10 @@ public class HomeActivity extends Activity {
         if (!query.isEmpty()) search.setText("");
     }
     @Override public void onBackPressed() {
+        if (inlineSettings != null) {
+            Runnable parent = inlineSettingsBack;
+            closeInlineSettings(); if (parent != null) parent.run(); return;
+        }
         if (!welcome && !query.isEmpty()) { clearSearch(); return; }
         // Finishing the default Home activity here makes Android immediately reopen it.
         if (Build.VERSION.SDK_INT >= 29) {
@@ -1157,12 +1163,22 @@ public class HomeActivity extends Activity {
                 }
             }).show();
     }
+    private View inlineSettings;
+    private Runnable inlineSettingsBack;
+    private void closeInlineSettings() {
+        if (inlineSettings == null) return;
+        View focused = getCurrentFocus();
+        if (focused != null) getSystemService(InputMethodManager.class).hideSoftInputFromWindow(focused.getWindowToken(), 0);
+        inlineSettings = null; inlineSettingsBack = null;
+        if (root.getParent() instanceof ViewGroup) ((ViewGroup) root.getParent()).removeView(root);
+        setContentView(root); root.requestFocus(); root.invalidate();
+        navigationLog("inline settings closed");
+    }
     private void showSettingsPage(String title, String subtitle, String[] labels, String[] details, String[] glyphs, List<Runnable> actions, Runnable back) {
-        Dialog page = new Dialog(this);
-        page.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        closeInlineSettings();
         boolean wallpaper = homeShowsWallpaper();
         LinearLayout content = column(); content.setBackgroundColor(wallpaper ? wallpaperPanelColor() : paper); content.setPadding(dp(18), dp(10), dp(18), dp(8));
-        TextView close = action(back == null ? "Close settings" : "‹  Back", () -> { page.dismiss(); if (back != null) back.run(); });
+        TextView close = action(back == null ? "Close settings" : "‹  Back", () -> { closeInlineSettings(); if (back != null) back.run(); });
         close.setTextColor(accent); if (wallpaper) styleWallpaperPanelText(close); content.addView(close);
         FrameLayout banner = wallpaper ? new FrameLayout(this) : heroFrame(); LinearLayout heading = column(); heading.setPadding(dp(18), dp(12), dp(18), dp(14));
         TextView kicker = text("ALPHARAIL STUDIO", 10, 0xffd9dcff); kicker.setLetterSpacing(.2f); heading.addView(kicker);
@@ -1177,7 +1193,7 @@ public class HomeActivity extends Activity {
             row.setMinimumHeight(dp(58)); row.setFocusable(true);
             row.setContentDescription(details[i].isEmpty() ? labels[i] : labels[i] + ", " + details[i]);
             row.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x284c42ca), rounded(wallpaper ? (lightHomeWallpaper() ? 0x22ffffff : 0x22000000) : surface, 16), null));
-            if (select != null) row.setOnClickListener(v -> { page.dismiss(); select.run(); });
+            if (select != null) row.setOnClickListener(v -> { closeInlineSettings(); select.run(); });
             else { row.setEnabled(false); row.setFocusable(false); row.setAlpha(wallpaper ? .72f : .55f); }
             TextView icon = text(glyphs[i], 15, accent); icon.setGravity(Gravity.CENTER); icon.setBackground(rounded(wallpaper ? 0x22888888 : dividerColor, 12));
             if (wallpaper) styleWallpaperPanelText(icon);
@@ -1214,17 +1230,14 @@ public class HomeActivity extends Activity {
                 public void afterTextChanged(android.text.Editable value) { }
             });
         }
-        page.setOnCancelListener(d -> { if (back != null) back.run(); });
-        page.setContentView(content); keepOnlyWallpaperBehind(page); page.show();
-        Window window = page.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new ColorDrawable(wallpaper ? android.graphics.Color.TRANSPARENT : paper));
-            if (wallpaper) window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            window.setLayout(-1, -1);
-            int bars = wallpaper ? wallpaperPanelColor() : paper;
-            window.setStatusBarColor(bars); window.setNavigationBarColor(bars);
-            window.getDecorView().setSystemUiVisibility((wallpaper ? !lightHomeWallpaper() : prefs.getInt("theme", 0) == 1) ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
-        }
+        inlineSettings = content; inlineSettingsBack = back;
+        FrameLayout host = new FrameLayout(this);
+        if (root.getParent() instanceof ViewGroup) ((ViewGroup) root.getParent()).removeView(root);
+        host.addView(root, new FrameLayout.LayoutParams(-1, -1));
+        host.addView(content, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(host);
+        root.invalidate();
+        navigationLog("inline settings opened");
     }
     private void showThemeSettings() {
         if (homeShowsWallpaper()) return;
