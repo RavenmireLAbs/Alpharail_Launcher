@@ -181,7 +181,15 @@ public class HomeActivity extends Activity {
             if (prefs.getBoolean("autoUpdates", false)) checkUpdates(false);
         }
     }
-    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); if (!welcome && scroll != null) { clearSearch(); scroll.post(() -> scroll.scrollTo(0, 0)); } }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent); setIntent(intent);
+        if (Intent.ACTION_MAIN.equals(intent.getAction()) && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            // Home must close panels, not leave a full-screen dialog above the launcher.
+            for (Dialog panel : new ArrayList<>(homePanels)) panel.dismiss();
+            if (letterBubble != null) { letterBubble.animate().cancel(); letterBubble.setVisibility(View.GONE); }
+        }
+        if (!welcome && scroll != null) { clearSearch(); scroll.scrollTo(0, 0); }
+    }
 
     @Override protected void onDestroy() { handler.removeCallbacks(expireUndo); handler.removeCallbacks(hideLetter); super.onDestroy(); }
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
@@ -198,19 +206,21 @@ public class HomeActivity extends Activity {
     private GradientDrawable rounded(int color, int radius) {
         GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(radius)); return shape;
     }
+    private final Set<Dialog> homePanels = new HashSet<>();
     private int wallpaperOverlayCount;
     private void keepOnlyWallpaperBehind(Dialog dialog) {
-        if (!homeShowsWallpaper()) return;
         dialog.setOnShowListener(ignored -> {
             View decor = dialog.getWindow().getDecorView();
-            if (!decor.isAttachedToWindow()) return;
-            wallpaperOverlayCount++;
+            if (!decor.isAttachedToWindow() || !homePanels.add(dialog)) return;
+            final boolean hidesHome = homeShowsWallpaper();
+            if (hidesHome) wallpaperOverlayCount++;
             if (root != null) root.invalidate();
             decor.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
                 @Override public void onViewAttachedToWindow(View view) { }
                 @Override public void onViewDetachedFromWindow(View view) {
                     view.removeOnAttachStateChangeListener(this);
-                    wallpaperOverlayCount--;
+                    homePanels.remove(dialog);
+                    if (hidesHome) wallpaperOverlayCount = Math.max(0, wallpaperOverlayCount - 1);
                     if (root != null) root.invalidate();
                 }
             });
@@ -1611,8 +1621,7 @@ public class HomeActivity extends Activity {
         if (i >= 0 && i + 1 < visible.size()) { labels.add("Move down"); actions.add(() -> move(kind, order, key, visible.get(i + 1))); }
     }
     private AlertDialog.Builder launcherDialog() {
-        if (!homeShowsWallpaper()) return new AlertDialog.Builder(this);
-        int theme = getResources().getIdentifier(lightHomeWallpaper() ? "WallpaperDialogLight" : "WallpaperDialogDark", "style", getPackageName());
+        int theme = homeShowsWallpaper() ? getResources().getIdentifier(lightHomeWallpaper() ? "WallpaperDialogLight" : "WallpaperDialogDark", "style", getPackageName()) : 0;
         return new AlertDialog.Builder(this, theme) {
             @Override public AlertDialog create() {
                 AlertDialog dialog = super.create();
@@ -1620,7 +1629,7 @@ public class HomeActivity extends Activity {
                 return dialog;
             }
             @Override public AlertDialog.Builder setView(View view) {
-                styleWallpaperDialogContent(view);
+                if (homeShowsWallpaper()) styleWallpaperDialogContent(view);
                 return super.setView(view);
             }
         };
