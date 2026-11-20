@@ -24,7 +24,7 @@ public final class ChatNotifications extends NotificationListenerService {
     static final Set<Runnable> observers = new HashSet<>();
     private void changed() { for (Runnable observer : new ArrayList<>(observers)) observer.run(); }
     @Override public void onNotificationPosted(StatusBarNotification item) {
-        if (item != null && isMessagingApp(this, item.getPackageName())) changed();
+        if (item != null) changed();
     }
     @Override public void onNotificationRemoved(StatusBarNotification item) { onNotificationPosted(item); }
     private static ChatNotifications connected;
@@ -33,6 +33,16 @@ public final class ChatNotifications extends NotificationListenerService {
     @Override public void onDestroy() { if (connected == this) { connected = null; changed(); } super.onDestroy(); }
 
     static boolean available() { return connected != null; }
+    static boolean hasNotification(String packageName) {
+        if (connected == null) return false;
+        try {
+            StatusBarNotification[] items = connected.getActiveNotifications();
+            if (items != null) for (StatusBarNotification item : items)
+                if (Process.myUserHandle().equals(item.getUser()) && packageName.equals(item.getPackageName())
+                    && !item.isOngoing() && (item.getNotification().flags & Notification.FLAG_GROUP_SUMMARY) == 0) return true;
+        } catch (RuntimeException ignored) { }
+        return false;
+    }
     static List<StatusBarNotification> current() {
         List<StatusBarNotification> messages = new ArrayList<>();
         ChatNotifications listener = connected;

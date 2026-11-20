@@ -86,6 +86,12 @@ public class HomeActivity extends Activity {
                 String day = android.text.format.DateFormat.format("EEEE, MMMM d", now).toString().toUpperCase(Locale.getDefault());
                 date.setText(day); date.setContentDescription(day + ", open Calendar");
             }
+            if (!welcome && prefs.getBoolean("scheduledTheme", false) && !homeShowsWallpaper()) {
+                int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+                int start = prefs.getInt("nightStart", 20), end = prefs.getInt("nightEnd", 7);
+                boolean night = start > end ? hour >= start || hour < end : hour >= start && hour < end;
+                if (prefs.getInt("theme", 0) != (night ? 1 : 0)) { recreate(); return; }
+            }
             handler.postDelayed(this, 15000);
         }
     };
@@ -96,6 +102,12 @@ public class HomeActivity extends Activity {
         if (prefs.getAll().isEmpty()) {
             prefs.edit().putBoolean("showHomeWallpaper", true)
                 .putInt("bundledWallpaper", -1).apply();
+        }
+        if (prefs.getBoolean("scheduledTheme", false) && !prefs.getBoolean("showHomeWallpaper", false)) {
+            int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+            int start = prefs.getInt("nightStart", 20), end = prefs.getInt("nightEnd", 7);
+            boolean night = start > end ? hour >= start || hour < end : hour >= start && hour < end;
+            prefs.edit().putInt("theme", night ? 1 : 0).apply();
         }
         boolean black = prefs.getInt("theme", 0) == 1;
         if (black) setTheme(getResources().getIdentifier("StillBlackTheme", "style", getPackageName()));
@@ -135,7 +147,13 @@ public class HomeActivity extends Activity {
     }
     private TextView chatsButton;
     private final Map<String, Long> seenChatNotifications = new HashMap<>();
-    private final Runnable updateChatsDot = () -> refreshChatsDot(false);
+    private final Runnable refreshAppDots = () -> {
+        if (!welcome && scroll != null && prefs.getBoolean("appDots", false)) { this.rowCache.evictAll(); refresh(); }
+    };
+    private final Runnable updateChatsDot = () -> {
+        refreshChatsDot(false);
+        handler.removeCallbacks(refreshAppDots); handler.postDelayed(refreshAppDots, 200);
+    };
     private void refreshChatsDot(boolean acknowledge) {
         if (chatsButton == null) return;
         boolean unread = false;
@@ -156,14 +174,14 @@ public class HomeActivity extends Activity {
         chatsButton.setContentDescription(unread ? "Chats, new messages" : "Chats");
     }
     @Override protected void onStart() { super.onStart(); host.startListening(); handler.post(tick); ChatNotifications.observers.add(updateChatsDot); updateChatsDot.run(); }
-    @Override protected void onStop() { handler.removeCallbacks(tick); ChatNotifications.observers.remove(updateChatsDot);
+    @Override protected void onStop() { handler.removeCallbacks(tick); handler.removeCallbacks(refreshAppDots); ChatNotifications.observers.remove(updateChatsDot);
         for (AlertDialog dialog : new ArrayList<>(privateChatDialogs)) dialog.dismiss();
         privateChatDialogs.clear(); chatAvatars.evictAll(); sessionReplies.evictAll(); host.stopListening(); super.onStop(); }
     @Override protected void onResume() {
         super.onResume(); updateForeground = true;
         if (!welcome && clock != null) { handler.removeCallbacks(tick); handler.post(tick); }
         if (!welcome && scroll != null) {
-            if (reloadApps()) refresh();
+            if (reloadApps() || prefs.getBoolean("appDots", false) || prefs.getBoolean("showWork", false)) refresh();
             if (prefs.getBoolean("autoUpdates", false)) checkUpdates(false);
         }
     }
@@ -336,7 +354,7 @@ public class HomeActivity extends Activity {
     private void styleWallpaperText(TextView label) {
         if (!homeShowsWallpaper()) return;
         label.setTextColor(lightHomeWallpaper() ? 0xff191919 : 0xffffffff);
-        label.setShadowLayer(dp(3), 0, dp(1), lightHomeWallpaper() ? 0xffffffff : 0xff000000);
+        label.setShadowLayer(dp(prefs.getBoolean("strongText", false) ? 7 : 3), 0, dp(1), lightHomeWallpaper() ? 0xffffffff : 0xff000000);
     }
     private void selectWallpaper(boolean enabled, int bundled) {
         if (settingAndroidWallpaper) {
@@ -634,6 +652,7 @@ public class HomeActivity extends Activity {
         scroll = new ScrollView(this); list = column(); scroll.addView(list); list.setLayoutDirection(getResources().getConfiguration().getLayoutDirection());
         appArea.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
         indexScroll = new AlphabetRail(); index = indexScroll;
+        indexScroll.setMinimumWidth(dp(prefs.getBoolean("largeRail", false) ? 44 : 24));
         indexScroll.setBackground(rounded(homeShowsWallpaper() ? android.graphics.Color.TRANSPARENT : surface, 18));
         appArea.addView(indexScroll, new LinearLayout.LayoutParams(dp(48), -1));
         placeRail();
@@ -792,7 +811,14 @@ public class HomeActivity extends Activity {
             for (ResolveInfo app : searchResults(filter, hidden)) {
                 row(app, favorites.contains(key(app)), false); any = true;
             }
-            if (!any) { TextView empty = text("No matching apps", 15, moss); styleWallpaperText(empty); list.addView(empty); }
+            if (!any) {
+                TextView empty = text("No matching apps", 15, moss); styleWallpaperText(empty); list.addView(empty);
+                addSearchShortcut("Search web", "https://www.google.com/search?q=" + Uri.encode(query));
+                addSearchShortcut("Search Play Store", "https://play.google.com/store/search?c=apps&q=" + Uri.encode(query));
+                String link = query.trim();
+                if (!link.contains(" ") && (link.startsWith("https://") || link.startsWith("http://") || link.matches("[A-Za-z0-9.-]+\\.[A-Za-z]{2,}(/.*)?")))
+                    addSearchShortcut("Open link", link.startsWith("http") ? link : "https://" + link);
+            }
         } else {
             boolean collapsed = prefs.getBoolean("favoritesCollapsed", false);
             TextView favoritesHeader = section(collapsed ? "★   FAVORITES   ›" : "★   FAVORITES   ⌄", "★", "Favorites");
@@ -817,6 +843,7 @@ public class HomeActivity extends Activity {
             else for (String id : widgetIds) widgetRow(id, list);
             }
             addCollections();
+            addWorkApps();
 
             Set<String> seen = new HashSet<>();
             String previous = null;
@@ -1163,8 +1190,66 @@ public class HomeActivity extends Activity {
         rebuildHomePreservingScroll(); showRailColorSettings();
     }
     private void showListSettings() {
-        showSettingsGroup("App list", Arrays.asList("Reorder Favorites", "Collections", "Alphabet side", "Alphabet color"), Arrays.asList(
-            this::reorderFavorites, this::manageCollections, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0, this::showListSettings), this::showRailColorSettings));
+        showSettingsGroup("App list", Arrays.asList("Reorder Favorites", "Collections", "Alphabet side", "Alphabet color", "More options"), Arrays.asList(
+            this::reorderFavorites, this::manageCollections, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0, this::showListSettings), this::showRailColorSettings, this::showExtraSettings));
+    }
+    private void addSearchShortcut(String label, String url) {
+        TextView button = action(label, () -> {
+            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
+            catch (ActivityNotFoundException | SecurityException e) { Toast.makeText(this, "No app can open this link", Toast.LENGTH_SHORT).show(); }
+        });
+        styleWallpaperText(button); list.addView(button);
+    }
+    private void toggleExtra(String key) {
+        prefs.edit().putBoolean(key, !prefs.getBoolean(key, false)).apply();
+        rowCache.evictAll(); rebuildHomePreservingScroll(); showExtraSettings();
+    }
+    private void showExtraSettings() {
+        showMenu("More options", Arrays.asList(
+            "Work apps: " + (prefs.getBoolean("showWork", false) ? "Shown" : "Hidden"),
+            "App notification dots: " + (prefs.getBoolean("appDots", false) ? "On" : "Off"),
+            "Exclude apps from dots", "Notification access",
+            "Larger alphabet targets: " + prefs.getBoolean("largeRail", false),
+            "Reduce animations: " + prefs.getBoolean("reduceMotion", false),
+            "Stronger wallpaper text: " + prefs.getBoolean("strongText", false),
+            "Scheduled theme"), Arrays.asList(
+            () -> toggleExtra("showWork"), () -> toggleExtra("appDots"),
+            () -> showAppChoices("Exclude from notification dots", "Checked apps will not show a notification dot.", "dotExcluded", this::showExtraSettings),
+            () -> startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)),
+            () -> toggleExtra("largeRail"), () -> toggleExtra("reduceMotion"), () -> toggleExtra("strongText"), this::showSchedule));
+    }
+    private void showSchedule() {
+        showMenu("Scheduled theme", Arrays.asList("Schedule: " + (prefs.getBoolean("scheduledTheme", false) ? "On" : "Off"),
+            "Black starts at " + prefs.getInt("nightStart", 20) + ":00", "White starts at " + prefs.getInt("nightEnd", 7) + ":00"), Arrays.asList(
+            () -> { prefs.edit().putBoolean("scheduledTheme", !prefs.getBoolean("scheduledTheme", false)).apply(); recreate(); },
+            () -> pickScheduleHour("nightStart", 20), () -> pickScheduleHour("nightEnd", 7)));
+    }
+    private void pickScheduleHour(String key, int fallback) {
+        new android.app.TimePickerDialog(this, (view,hour,minute) -> {
+            prefs.edit().putInt(key, hour).apply(); showSchedule();
+        }, prefs.getInt(key, fallback), 0, true).show();
+    }
+    private void addWorkApps() {
+        if (!prefs.getBoolean("showWork", false)) return;
+        android.content.pm.LauncherApps launcher = getSystemService(android.content.pm.LauncherApps.class);
+        android.os.UserManager users = getSystemService(android.os.UserManager.class);
+        boolean heading = false;
+        for (android.os.UserHandle user : users.getUserProfiles()) {
+            if (user.equals(android.os.Process.myUserHandle())) continue;
+            try {
+                List<android.content.pm.LauncherActivityInfo> work = launcher.getActivityList(null, user);
+                work.sort(Comparator.comparing(item -> item.getLabel().toString(), Collator.getInstance()));
+                for (android.content.pm.LauncherActivityInfo item : work) {
+                    if (!heading) { section("WORK APPS", null, "Work profile"); heading = true; }
+                    TextView entry = action("▣  " + item.getLabel(), () -> {
+                        try { launcher.startMainActivity(item.getComponentName(), user, null, null); }
+                        catch (RuntimeException e) { Toast.makeText(this, "Work profile is paused or unavailable", Toast.LENGTH_SHORT).show(); }
+                    });
+                    styleWallpaperText(entry); list.addView(entry);
+                }
+            } catch (RuntimeException ignored) { }
+        }
+        if (!heading) { TextView empty = text("No available work apps. Check your Android work profile settings.", 14, moss); styleWallpaperText(empty); list.addView(empty); }
     }
     private static final class AppCollection {
         final String name;
@@ -1632,7 +1717,7 @@ public class HomeActivity extends Activity {
         boolean animate = android.animation.ValueAnimator.areAnimatorsEnabled();
         if (letter == null) {
             if (letterBubble.getVisibility() != View.VISIBLE) return;
-            if (animate) letterBubble.animate().alpha(0).setDuration(120).withEndAction(() -> letterBubble.setVisibility(View.GONE)).start();
+            if (animate && !prefs.getBoolean("reduceMotion", false)) letterBubble.animate().alpha(0).setDuration(120).withEndAction(() -> letterBubble.setVisibility(View.GONE)).start();
             else letterBubble.setVisibility(View.GONE);
             return;
         }
@@ -1649,7 +1734,7 @@ public class HomeActivity extends Activity {
         letterBubble.setLayoutParams(bubblePosition); letterBubble.setVisibility(View.VISIBLE);
         letterBubble.setAlpha(1);
         letterBubble.setScaleX(animate ? .86f : 1); letterBubble.setScaleY(animate ? .86f : 1);
-        if (animate) letterBubble.animate().scaleX(1).scaleY(1).setDuration(130).start();
+        if (animate && !prefs.getBoolean("reduceMotion", false)) letterBubble.animate().scaleX(1).scaleY(1).setDuration(130).start();
     }
     private TextView section(String name, String shortcut, String description) {
         TextView title = text(name, 12, accent); title.setLetterSpacing(.12f); title.setTypeface(null, Typeface.BOLD); title.setPadding(0, dp(13), 0, dp(5)); styleWallpaperText(title); list.addView(title); emptyArea(title);
@@ -1657,7 +1742,7 @@ public class HomeActivity extends Activity {
             TextView jump = action(shortcut, () -> {});
             jump.setTag(title); jump.setOnClickListener(v -> jumpToLetter(jump, true));
             jump.setGravity(Gravity.CENTER); jump.setMinHeight(0); jump.setIncludeFontPadding(false); jump.setTextSize(12);
-            jump.setAutoSizeTextTypeUniformWithConfiguration(8, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+            jump.setAutoSizeTextTypeUniformWithConfiguration(8, prefs.getBoolean("largeRail", false) ? 16 : 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
             jump.setTextColor(new ColorStateList(new int[][]{new int[]{android.R.attr.state_selected}, new int[]{}}, new int[]{railTextColor(), homeShowsWallpaper() ? (lightHomeWallpaper() ? 0xff191919 : 0xffffffff) : moss}));
             if (homeShowsWallpaper()) jump.setShadowLayer(dp(3), 0, dp(1), lightHomeWallpaper() ? 0xffffffff : 0xff000000);
             android.graphics.drawable.StateListDrawable state = new android.graphics.drawable.StateListDrawable();
@@ -1671,6 +1756,7 @@ public class HomeActivity extends Activity {
         String rowKey = key(app) + "|" + label(app) + "|" + favorite + "|" + inFavorites + "|" + lockedApps.contains(app.activityInfo.packageName)
             + "|" + prefs.getInt("iconSize", 1) + "|" + prefs.getInt("iconStyle", 0) + "|" + prefs.getInt("iconShape", 0)
             + "|" + prefs.getInt("fontSize", 1) + "|" + prefs.getInt("fontShape", 0);
+        rowKey += "|dots:" + (prefs.getBoolean("appDots", false) && !saved("dotExcluded").contains(app.activityInfo.packageName) && ChatNotifications.hasNotification(app.activityInfo.packageName));
         View reused = rowCache.get(rowKey);
         if (reused != null && reused.getParent() == null) { list.addView(reused); return; }
         LinearLayout line = new LinearLayout(this); line.setGravity(Gravity.CENTER_VERTICAL);
@@ -1713,6 +1799,10 @@ public class HomeActivity extends Activity {
             });
         });
         star.setGravity(Gravity.CENTER); if (favorite) star.setTextColor(accent); styleWallpaperText(star); star.setContentDescription((favorite ? "Unfavorite " : "Favorite ") + label(app)); line.addView(star, new LinearLayout.LayoutParams(dp(44), dp(height)));
+        if (prefs.getBoolean("appDots", false) && !saved("dotExcluded").contains(app.activityInfo.packageName) && ChatNotifications.hasNotification(app.activityInfo.packageName)) {
+            TextView dot = text("●", 12, accent); styleWallpaperText(dot);
+            dot.setContentDescription("Active notification"); line.addView(dot);
+        }
         rowCache.put(rowKey, line); list.addView(line);
     }
     private View appIcon(ResolveInfo app, int size) {
