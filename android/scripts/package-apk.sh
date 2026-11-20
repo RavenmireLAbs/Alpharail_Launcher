@@ -13,12 +13,13 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cd "$work"
 fetch() {
-  curl -H "Accept: application/vnd.github.raw+json" --fail --silent --show-error --location --retry 3 --retry-all-errors --max-time 90 "$1" -o "$2"
+  curl -H "Accept: application/vnd.github.raw+json" --fail --silent --show-error --location --retry 3 --retry-all-errors --max-time 90 "$1" -o "$2" || return 1
   printf '%s  %s\n' "$3" "$2" | sha256sum --check
 }
 fetch https://registry.npmjs.org/aaptjs3/-/aaptjs3-2.0.2.tgz aapt.tgz 26031bd1acb577edce91675ae92daf63cf85795d4e2399333edeb994dd9197e9
 fetch https://registry.npmjs.org/@drxiaozhi/minapk/-/minapk-0.5.1.tgz tools.tgz 5e411bfdf4a0eae820d34afb9727e0675dcb3cc04608f602ee427c2b949c9e65
-fetch https://api.github.com/repos/Sable/android-platforms/contents/android-35/android.jar?ref=1e98db1a199e8f7f85541af26bfc27019501b132 android.jar 4566663c3876e022b4fa4ced8c8697c4ab1688267f090114fd92d027b32e619b
+fetch https://raw.githubusercontent.com/Sable/android-platforms/1e98db1a199e8f7f85541af26bfc27019501b132/android-35/android.jar android.jar 4566663c3876e022b4fa4ced8c8697c4ab1688267f090114fd92d027b32e619b || \
+  fetch https://api.github.com/repos/Sable/android-platforms/contents/android-35/android.jar?ref=1e98db1a199e8f7f85541af26bfc27019501b132 android.jar 4566663c3876e022b4fa4ced8c8697c4ab1688267f090114fd92d027b32e619b
 tar xzf aapt.tgz package/bin/x64/linux/aapt2
 chmod +x package/bin/x64/linux/aapt2
 tar xzf tools.tgz package/tools/d8.jar package/tools/apksigner.jar package/tools/ecj-3.45.0.jar

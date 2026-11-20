@@ -14,7 +14,7 @@ A minimal Android launcher built around **one alphabetical app list**. Drag the 
 
 - **A–Z navigation and offline search.** Tap or drag the alphabet rail, place it on either side, or press Enter to open the top visible search result. Clearing search returns you to your prior scroll position.
 - **Favorites, Collections, and widgets.** Pin apps above A, organize them into named groups, and show widgets separately or as a swipeable stack. Widgets can be resized when their provider supports it.
-- **Appearance.** White is the default; preview Black before applying. Optionally show your Android wallpaper behind the app list via **Launcher settings → Home wallpaper**. Customize icon style, size, and shape, or change the typeface and font size. Appearance presets can be shared without exporting app lists.
+- **Appearance.** White is the default; preview Black before applying. Choose your Android wallpaper or one of bundled wallpapers from the Abstract collection (five light and nine dark) or the Wuxia & Xianxia collection (ten designs) via **Launcher settings → Home wallpaper**. The bundled wallpapers only change Alpharail Home. Customize icon style, size, and shape, or change the typeface and font size. Appearance presets can be shared without exporting app lists.
 - **Home shortcuts.** Tap the clock to open Clock or the date to open Calendar on supported devices.
 - **Privacy controls.** Hiding an app doesn’t uninstall it. App Lock uses Android screen-lock authentication for launches from Alpharail; it doesn’t lock apps system-wide.
 
