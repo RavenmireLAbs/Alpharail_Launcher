@@ -1,4 +1,4 @@
-package com.ravenmire.still;
+package com.ravenmire.alpharail;
 
 import android.app.*;
 import android.app.role.RoleManager;
@@ -159,7 +159,7 @@ public class HomeActivity extends Activity {
         welcome = true; base(); root.setGravity(Gravity.CENTER_VERTICAL);
         FrameLayout cover = heroFrame();
         LinearLayout headline = column(); headline.setPadding(dp(22), dp(24), dp(22), dp(20)); cover.addView(headline);
-        TextView wordmark = text("STILL  /  INDEX", 12, 0xffd9dcff); wordmark.setLetterSpacing(.19f); headline.addView(wordmark);
+        TextView wordmark = text("ALPHARAIL  /  INDEX", 12, 0xffd9dcff); wordmark.setLetterSpacing(.19f); headline.addView(wordmark);
         TextView title = text("Make room\nfor less.", 46, 0xffffffff);
         title.setLetterSpacing(-.045f); title.setTypeface(null, Typeface.BOLD);
         title.setPadding(0, dp(30), 0, 0); headline.addView(title);
@@ -516,7 +516,7 @@ public class HomeActivity extends Activity {
         showMenu("Widgets", labels, actions);
     }
     private void showSettings() {
-        showSettingsPage("Launcher settings", "Make Still yours", new String[]{"Theme", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Set as Home"},
+        showSettingsPage("Launcher settings", "Make Alpharail yours", new String[]{"Theme", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Set as Home"},
             new String[]{prefs.getInt("theme", 0) == 1 ? "Black palette" : "White palette", "Style, size and shape", "Typeface and text size", "Favorites and alphabet placement", "Hidden apps and App Lock", "Move your settings to another device", "Choose your default launcher"},
             new String[]{"◐", "▦", "Aa", "A–Z", "◇", "⇅", "⌂"}, Arrays.asList(this::showThemeSettings, this::showIconSettings, this::showFontSettings,
                 this::showListSettings, this::showPrivacySettings, this::backupMenu, this::setHome), null);
@@ -528,7 +528,7 @@ public class HomeActivity extends Activity {
         TextView close = action(back == null ? "Close settings" : "‹  Settings", () -> { page.dismiss(); if (back != null) back.run(); });
         close.setTextColor(accent); content.addView(close);
         FrameLayout banner = heroFrame(); LinearLayout heading = column(); heading.setPadding(dp(18), dp(12), dp(18), dp(14));
-        TextView kicker = text("STILL STUDIO", 10, 0xffd9dcff); kicker.setLetterSpacing(.2f); heading.addView(kicker);
+        TextView kicker = text("ALPHARAIL STUDIO", 10, 0xffd9dcff); kicker.setLetterSpacing(.2f); heading.addView(kicker);
         TextView name = text(title, 28, 0xffffffff); name.setTypeface(null, Typeface.BOLD); heading.addView(name);
         heading.addView(text(subtitle, 13, 0xffe0e2ff)); banner.addView(heading); content.addView(banner, new LinearLayout.LayoutParams(-1, -2));
         ScrollView scroll = new ScrollView(this); scroll.setClipToPadding(false); scroll.setPadding(0, dp(12), 0, dp(8));
@@ -687,7 +687,7 @@ public class HomeActivity extends Activity {
         }).setNegativeButton("Back", (d,w) -> parent.run()).show();
     }
     private void showHiddenApps() {
-        showAppChoices("Hidden apps", "Checked apps are hidden from Still, but stay installed.", "hidden", this::showPrivacySettings);
+        showAppChoices("Hidden apps", "Checked apps are hidden from Alpharail, but stay installed.", "hidden", this::showPrivacySettings);
     }
     private void showAppChoices(String title, String explanation, String pref, Runnable back) {
         Set<String> chosen = saved(pref);
@@ -765,7 +765,7 @@ public class HomeActivity extends Activity {
         field.setSingleLine(true);
         field.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(40)});
         field.setText(label(app)); field.setSelectAllOnFocus(true);
-        new AlertDialog.Builder(this).setTitle("Rename in Still").setMessage("This changes the name and alphabetical position in Still only.")
+        new AlertDialog.Builder(this).setTitle("Rename in Alpharail").setMessage("This changes the name and alphabetical position in Alpharail only.")
             .setView(field).setNegativeButton("Cancel", null)
             .setNeutralButton("Reset name", (d,w) -> { prefs.edit().remove(pref).apply(); reloadApps(); refresh(); })
             .setPositiveButton("Save", (d,w) -> {
@@ -788,7 +788,7 @@ public class HomeActivity extends Activity {
         Set<String> hidden = saved("hidden");
         if (!hidden.add(id)) return;
         store("hidden", hidden); refresh();
-        showUndo("Hidden from Still", () -> {
+        showUndo("Hidden from Alpharail", () -> {
             Set<String> current = saved("hidden"); current.remove(id); store("hidden", current); refresh();
         });
     }
@@ -799,10 +799,10 @@ public class HomeActivity extends Activity {
             try { startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.activityInfo.packageName, null))); }
             catch (ActivityNotFoundException | SecurityException ignored) { Toast.makeText(this, "App info unavailable", Toast.LENGTH_SHORT).show(); }
         });
-        labels.add("Rename in Still"); actions.add(() -> renameApp(app));
+        labels.add("Rename in Alpharail"); actions.add(() -> renameApp(app));
         List<AppCollection> groups = collections();
         if (!groups.isEmpty()) { labels.add("Add to collection"); actions.add(() -> addAppToCollection(app, groups)); }
-        labels.add("Hide from Still"); actions.add(() -> hideApp(app));
+        labels.add("Hide from Alpharail"); actions.add(() -> hideApp(app));
         if (inFavorites) addMoveActions(labels, actions, "favorites", favoriteOrder(), key(app), saved("hidden"));
         LauncherApps manager = getSystemService(LauncherApps.class);
         try {
@@ -1232,7 +1232,7 @@ public class HomeActivity extends Activity {
         dismissKeyboard();
         if (!chatEnabled()) {
             new AlertDialog.Builder(this).setTitle("Chats")
-                .setMessage("Optional: show active messaging notifications and reply where the app supports it. Android notification access can read all notifications. Still only displays message notifications here, does not save or upload their contents, and cannot retrieve chat history. Photos and unsupported replies open in the original app.")
+                .setMessage("Optional: show active messaging notifications and reply where the app supports it. Android notification access can read all notifications. Alpharail only displays message notifications here, does not save or upload their contents, and cannot retrieve chat history. Photos and unsupported replies open in the original app.")
                 .setNegativeButton("Not now", null).setPositiveButton("Enable Chats", (d,w) -> {
                     prefs.edit().putBoolean("chatsEnabled", true).apply();
                     if (chatEnabled()) showChats(); else startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
@@ -1273,7 +1273,7 @@ public class HomeActivity extends Activity {
             View separator = new View(this); separator.setBackgroundColor(dividerColor); rows.addView(separator, new LinearLayout.LayoutParams(-1, dp(1)));
             if (++count == 50) break;
         }
-        if (count == 0) rows.addView(text(ChatNotifications.available() ? "No active messages from included apps." : "Waiting for notification access. Try Refresh after enabling Still Chats in Android settings.", 15, ink));
+        if (count == 0) rows.addView(text(ChatNotifications.available() ? "No active messages from included apps." : "Waiting for notification access. Try Refresh after enabling Alpharail Chats in Android settings.", 15, ink));
     }
     private boolean visibleChatText(StatusBarNotification item, boolean enabled) {
         Notification n = item.getNotification();
@@ -1582,13 +1582,13 @@ public class HomeActivity extends Activity {
                 if (exporting) { exportSettings(data.getData(), request == EXPORT_LOOK); Toast.makeText(this, "Settings exported", Toast.LENGTH_SHORT).show(); }
                 else importSettings(data.getData(), request == IMPORT_LOOK);
             } catch (IOException | JSONException | SecurityException e) {
-                Toast.makeText(this, "Couldn't " + (exporting ? "export settings" : "read a valid Still backup"), Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Couldn't " + (exporting ? "export settings" : "read a valid Alpharail backup"), Toast.LENGTH_LONG).show();
             }
         }
         if (request == CONFIRM_LOCK_SETTINGS) {
             boolean requested = pendingLockSettings; pendingLockSettings = false;
             if (requested && result == RESULT_OK) {
-                showAppChoices("App lock", "Checked apps require your device PIN, pattern, or password when opened from Still. This does not block other ways of opening an app.", "locked", this::showPrivacySettings);
+                showAppChoices("App lock", "Checked apps require your device PIN, pattern, or password when opened from Alpharail. This does not block other ways of opening an app.", "locked", this::showPrivacySettings);
             }
         }
     }

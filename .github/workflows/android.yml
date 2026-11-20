@@ -33,7 +33,7 @@ jobs:
           set -o pipefail
           version=$(sed -n "s/^[[:space:]]*versionName '\([0-9][0-9.]*\)'.*/\1/p" android/app/build.gradle)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          apk="Still-v$version-debug.apk"
+          apk="Alpharail-v$version-debug.apk"
           if [[ "$PUBLISH" == true && ( "$GITHUB_REF" != refs/heads/main || -z "$KEYSTORE_BASE64" || -z "$STILL_STORE_PASSWORD" || -z "$CERTIFICATE_SHA256" ) ]]; then
             echo '::error::Publishing requires main, both release signing secrets, and the pinned certificate SHA-256.'
             exit 1
@@ -43,7 +43,7 @@ jobs:
             export STILL_KEYSTORE="$RUNNER_TEMP/still.p12"
             trap 'rm -f "$STILL_KEYSTORE"' EXIT
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$STILL_KEYSTORE"
-            apk="Still-v$version.apk"
+            apk="Alpharail-v$version.apk"
           fi
           if ! android/scripts/package-apk.sh "$apk" 2>&1 | tee "$RUNNER_TEMP/package.log"; then
             tail -n 12 "$RUNNER_TEMP/package.log" | while IFS= read -r line; do echo "::error::$line"; done
@@ -64,15 +64,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           APK: ${{ steps.build.outputs.apk }}
           TAG: ${{ steps.build.outputs.tag }}
-        run: gh release create "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Still $TAG" --generate-notes
-      - name: Publish v0.3.2 debug APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outputs.tag == 'v0.3.2'
+        run: gh release create "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Alpharail $TAG" --generate-notes
+      - name: Publish v0.3.3 debug APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outputs.tag == 'v0.3.3'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=v0.3.2
+          tag=v0.3.3
           if gh release view "$tag" >/dev/null 2>&1; then exit 0; fi
-          apk=Still-v0.3.2-debug.apk
+          apk=Alpharail-v0.3.3-debug.apk
           android/scripts/package-apk.sh "$apk"
-          gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title 'Still v0.3.2 (Debug APK)' --notes 'Adds app list and search caching, live Chats refresh, a wider alphabet rail, guided widget recovery, and custom app names in backups. Android 8.0+. This debug APK uses a different signing key from earlier releases. Export your settings before uninstalling the old build; widget bindings and App Lock do not carry over.'
+          gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title 'Alpharail v0.3.3 (Debug APK)' --notes 'Still is now Alpharail, with the selected ivory, ink, and periwinkle adaptive icon. Android 8.0+. The new package ID, com.ravenmire.alpharail, installs alongside Still rather than updating it. Export settings from Still and import them into Alpharail. Set Alpharail as Home, regrant Chats access if needed, and set up App Lock and widgets again. This is a development-signed APK.'

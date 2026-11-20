@@ -139,7 +139,7 @@ $('backup-file').onchange = async event => {
       if (!Object.hasOwn(appearanceMax, key) || !Number.isInteger(value) || value < 0 || value > appearanceMax[key]) throw new Error();
     }
   } catch {
-    menu('Could not restore settings', [], hint('Choose a valid Still preview backup.')); return;
+    menu('Could not restore settings', [], hint('Choose a valid Alpharail preview backup.')); return;
   }
   menu(preset ? 'Apply appearance preset?' : 'Restore settings?', [[preset ? 'Apply' : 'Restore', () => {
     clearUndo();
@@ -211,7 +211,7 @@ function launcherSettings() {
     ['App list', listSettings],
     ['Privacy', privacySettings],
     ['Backup and restore', backupMenu],
-  ], 'Make Still yours');
+  ], 'Make Alpharail yours');
 }
 function settingsGroup(title, entries) { settingsPage(title, [...entries, ['Back', launcherSettings]], 'Customize your launcher'); }
 function iconSettings() {
@@ -229,7 +229,7 @@ function fontSettings() {
 }
 function privacySettings() {
   settingsGroup('Privacy', [
-    ['Hidden apps', () => appChoices('Hidden apps', 'Checked apps are hidden from Still.', hidden, values => {
+    ['Hidden apps', () => appChoices('Hidden apps', 'Checked apps are hidden from Alpharail.', hidden, values => {
       const added = values.filter(name => !hidden.includes(name)); hidden = values;
       if (added.length) showUndo(added.length === 1 ? 'App hidden' : 'Apps hidden', () => {
         hidden = hidden.filter(name => !added.includes(name)); update();

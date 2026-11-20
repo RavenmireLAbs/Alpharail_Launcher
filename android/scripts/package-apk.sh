@@ -33,7 +33,7 @@ with ZipFile('classes.jar', 'w', ZIP_DEFLATED) as jar:
         jar.write(path, path.relative_to('classes'))
 PYZIP
 java -cp package/tools/d8.jar com.android.tools.r8.D8 --release --min-api 26 --lib android.jar --output dex classes.jar
-sed 's/<manifest /<manifest package="com.ravenmire.still" /' "$source_dir/AndroidManifest.xml" > AndroidManifest.xml
+sed 's/<manifest /<manifest package="com.ravenmire.alpharail" /' "$source_dir/AndroidManifest.xml" > AndroidManifest.xml
 package/bin/x64/linux/aapt2 compile --dir "$source_dir/res" -o resources.zip
 package/bin/x64/linux/aapt2 link -I android.jar --manifest AndroidManifest.xml --min-sdk-version 26 --target-sdk-version 34 --version-code "$version_code" --version-name "$version_name" -o unsigned.apk resources.zip
 python3 - <<'PY'

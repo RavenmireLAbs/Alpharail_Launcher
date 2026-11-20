@@ -43,3 +43,5 @@ main{max-width:1380px;gap:6vw}.intro>.eyebrow{background:#e9edff;border:0;border
   text-align: start;
   cursor: pointer;
 }
+
+.brand-icon { display: block; flex-shrink: 0; }
