@@ -192,6 +192,10 @@ function previewTheme() {
   menu('Preview theme', [['Apply', () => { appearance.theme = selected; update(); }], ['Cancel', () => {}]], controls);
 }
 const settingCards = {
+  'Icon style': ['▦', ''], 'Icon size': ['↔', ''], 'Icon shape': ['◇', ''],
+  'Font size': ['Aa', ''], Typeface: ['Tt', ''], 'Reorder Favorites': ['★', ''],
+  Collections: ['▤', ''], 'Alphabet side': ['⇄', ''], 'Alphabet color': ['◐', ''],
+  'Hidden apps': ['◌', ''], 'App lock': ['⚿', ''],
   Theme: ['◐', () => demoWallpaper ? 'Unavailable while wallpaper is on' : appearance.theme === 1 ? 'Black palette' : 'White palette'],
   'Wallpaper presets': ['✦', 'Save and switch looks'], Clock: ['◷', 'Size, date and alarm time'],
   Icons: ['▦', 'Style, size and shape'], Fonts: ['Aa', 'Typeface and text size'],
@@ -204,7 +208,7 @@ function settingsPage(title, entries, subtitle) {
   dialog.classList.add('settings-page');
   $('menu-title').after(intro);
   for (const node of $('menu-items').querySelectorAll('button')) {
-    const label = node.textContent, [mark, detail] = settingCards[label] ?? ['·', ''];
+    const label = node.textContent, [mark, detail] = settingCards[label] ?? ['⚙', ''];
     if (label === 'Theme' && demoWallpaper) node.disabled = true;
     const icon = document.createElement('span'); icon.className = 'settings-glyph'; icon.textContent = mark; icon.setAttribute('aria-hidden', 'true');
     const copy = document.createElement('span'); copy.className = 'settings-copy';
@@ -737,4 +741,10 @@ if (featuredPanel === 'next-alarm') {
   indicator.title = 'Example: next alarm at 7:00 AM';
   indicator.innerHTML = '<svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24"><path d="M12,5 A7.5,7.5 0,1 1,12 20 A7.5,7.5 0,1 1,12 5 M12,8.5 L12,12.5 L14.5,14 M6,3 L3,6 M18,3 L21,6 M7,19 L5.5,21 M17,19 L18.5,21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   $('home-clock').parentElement.append(indicator);
+}
+
+// Share a direct preview of the settings submenu icons.
+if (featuredPanel === 'submenu-icons') {
+  showWelcome(false);
+  requestAnimationFrame(iconSettings);
 }
