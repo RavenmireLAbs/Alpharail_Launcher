@@ -30,6 +30,7 @@ jobs:
           STILL_STORE_PASSWORD: ${{ secrets.STILL_STORE_PASSWORD }}
           CERTIFICATE_SHA256: ${{ vars.STILL_CERTIFICATE_SHA256 }}
         run: |
+          set -o pipefail
           version=$(sed -n "s/^[[:space:]]*versionName '\([0-9][0-9.]*\)'.*/\1/p" android/app/build.gradle)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           apk="Still-v$version-debug.apk"
@@ -64,21 +65,14 @@ jobs:
           APK: ${{ steps.build.outputs.apk }}
           TAG: ${{ steps.build.outputs.tag }}
         run: gh release create "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Still $TAG" --generate-notes
-      - name: Publish v0.3.0 Preview 3
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outputs.tag == 'v0.3.0'
+      - name: Publish v0.3.1 debug APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outputs.tag == 'v0.3.1'
         env:
           GH_TOKEN: ${{ github.token }}
-          APK: ${{ steps.build.outputs.apk }}
         run: |
-          tag=v0.3.0-preview.3
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
-          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          Development preview for Android 8.0 and later.
-
-          - Redesigned welcome, home clock card, and card-based Launcher settings.
-          - Optional Black theme alongside the default White theme.
-          - Tap the home clock to open Android Clock. Tap or drag along the alphabet rail to move through the list with an animated letter indicator.
-
-          This is a prerelease. Export Still settings if available, then uninstall any previous development build before installing this APK because the signing keys differ. Widgets and App Lock are not included in settings backups.
-          NOTES
-          gh release create "$tag" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Still v0.3.0 Preview 3' --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
+          set -euo pipefail
+          tag=v0.3.1
+          if gh release view "$tag" >/dev/null 2>&1; then exit 0; fi
+          apk=Still-v0.3.1-debug.apk
+          android/scripts/package-apk.sh "$apk"
+          gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title 'Still v0.3.1 (Debug APK)' --notes 'Hardens chat privacy, reply and conversation actions, App Lock checks, backup document handling, and the browser preview. Android 8.0+. This debug APK uses a different signing key from earlier releases. Export your settings before uninstalling the old build; widget bindings and App Lock do not carry over.'

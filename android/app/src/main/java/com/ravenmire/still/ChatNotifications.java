@@ -29,12 +29,13 @@ public final class ChatNotifications extends NotificationListenerService {
     static boolean available() { return connected != null; }
     static List<StatusBarNotification> current() {
         List<StatusBarNotification> messages = new ArrayList<>();
-        if (connected == null) return messages;
+        ChatNotifications listener = connected;
+        if (listener == null || !listener.getSharedPreferences("still", Context.MODE_PRIVATE).getBoolean("chatsEnabled", false)) return messages;
         try {
-            StatusBarNotification[] active = connected.getActiveNotifications();
+            StatusBarNotification[] active = listener.getActiveNotifications();
             if (active != null) for (StatusBarNotification item : active) {
                 Notification n = item.getNotification();
-                if (!isMessagingApp(connected, item.getPackageName()) || !Process.myUserHandle().equals(item.getUser()) || (n.flags & Notification.FLAG_GROUP_SUMMARY) != 0) continue;
+                if (!isMessagingApp(listener, item.getPackageName()) || !Process.myUserHandle().equals(item.getUser()) || (n.flags & Notification.FLAG_GROUP_SUMMARY) != 0) continue;
                 if (Notification.CATEGORY_MESSAGE.equals(n.category) || (n.extras != null && Notification.MessagingStyle.class.getName().equals(n.extras.getString(Notification.EXTRA_TEMPLATE)))) messages.add(item);
             }
         } catch (RuntimeException ignored) { }
@@ -56,7 +57,11 @@ public final class ChatNotifications extends NotificationListenerService {
     static Notification.Action replyAction(StatusBarNotification item) {
         Notification.Action[] actions = item.getNotification().actions;
         if (actions != null) for (Notification.Action action : actions) {
-            if (action.actionIntent != null && item.getPackageName().equals(action.actionIntent.getCreatorPackage()) && replyInput(action) != null) return action;
+            if (action == null || action.actionIntent == null || !item.getPackageName().equals(action.actionIntent.getCreatorPackage()) || replyInput(action) == null) continue;
+            if (android.os.Build.VERSION.SDK_INT >= 31 && action.actionIntent.isImmutable()) continue;
+            if (android.os.Build.VERSION.SDK_INT >= 28 && action.getSemanticAction() != Notification.Action.SEMANTIC_ACTION_NONE
+                && action.getSemanticAction() != Notification.Action.SEMANTIC_ACTION_REPLY) continue;
+            return action;
         }
         return null;
     }

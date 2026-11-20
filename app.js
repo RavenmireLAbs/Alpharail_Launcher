@@ -5,7 +5,27 @@ const $ = id => document.getElementById(id);
 const list = $('list'), rail = $('alphabet'), search = $('search'), dialog = $('menu');
 const all = Object.values(apps).flat(), icons = new Map(all);
 const demoWidgets = new Map([['Clock', '9:41'], ['Date', 'Thursday, November 19'], ['Weather', '21° · Clear']]);
-const read = (key, fallback) => JSON.parse(localStorage.getItem(`still-${key}`) ?? JSON.stringify(fallback));
+const read = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(`still-${key}`);
+    if (raw === null) return fallback;
+    const value = JSON.parse(raw);
+    if (Array.isArray(fallback)) {
+      if (!Array.isArray(value)) return fallback;
+      if (key === 'collections') return value.slice(0, 12).filter(group =>
+        typeof group?.name === 'string' && Array.isArray(group.apps)).map(({name, apps}) =>
+        ({name: name.slice(0, 40), apps: [...new Set(apps.filter(app => icons.has(app)))]}));
+      return value.filter(item => typeof item === 'string');
+    }
+    if (fallback === null) return typeof value === 'string' ? value : null;
+    if (value === null || typeof value !== typeof fallback || Array.isArray(value)) return fallback;
+    return value;
+  } catch { return fallback; }
+};
+function storePreview(key, value) {
+  try { localStorage.setItem(`still-${key}`, JSON.stringify(value)); }
+  catch { /* The preview still works without persistent storage. */ }
+}
 let favorites = read('favorites', ['Camera', 'Maps', 'Messages']);
 let widgets = read('widgets', []), hidden = read('hidden', []), heights = read('widget-heights', {});
 let appearance = read('appearance', {}), locked = read('locked', []);
@@ -24,7 +44,7 @@ function searchResults(entries, query) {
 }
 function save() {
   for (const [key, value] of Object.entries({favorites, widgets, hidden, 'widget-heights': heights, appearance, locked, collections, 'stacked-widgets': stacked, 'stack-widget': stackWidget})) {
-    localStorage.setItem(`still-${key}`, JSON.stringify(value));
+    storePreview(key, value);
   }
 }
 function button(text, action, label = text) {
@@ -541,9 +561,9 @@ const chatSamples = [
 ];
 let chatEnabled = read('chats-enabled', false), chatPreviews = read('chat-previews', false), chatExcluded = read('chat-excluded', []);
 function saveChats() {
-  localStorage.setItem('still-chats-enabled', JSON.stringify(chatEnabled));
-  localStorage.setItem('still-chat-previews', JSON.stringify(chatPreviews));
-  localStorage.setItem('still-chat-excluded', JSON.stringify(chatExcluded));
+  storePreview('chats-enabled', chatEnabled);
+  storePreview('chat-previews', chatPreviews);
+  storePreview('chat-excluded', chatExcluded);
 }
 function showChats() {
   if (!chatEnabled) {
