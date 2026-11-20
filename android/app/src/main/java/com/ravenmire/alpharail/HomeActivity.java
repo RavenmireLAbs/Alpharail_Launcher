@@ -47,7 +47,7 @@ public class HomeActivity extends Activity {
     private AppWidgetManager widgets;
     private final Set<AlertDialog> privateChatDialogs = new HashSet<>();
     private void showPrivateChatDialog(AlertDialog dialog) {
-        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        if (prefs.getBoolean("chatBlockScreenshots", true)) dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         privateChatDialogs.add(dialog);
         dialog.setOnDismissListener(ignored -> privateChatDialogs.remove(dialog));
         dialog.show();
@@ -1634,9 +1634,9 @@ public class HomeActivity extends Activity {
         Toast.makeText(this, "This message action is no longer available", Toast.LENGTH_SHORT).show(); return false;
     }
     private void showChatSettings() {
-        showMenu("Chat settings", Arrays.asList(prefs.getBoolean("chatPreviews", false) ? "Hide message previews" : "Show message previews", "Included apps", "Clear conversation pins", "Android notification access", "Turn off Chats"), Arrays.asList(
+        showMenu("Chat settings", Arrays.asList(prefs.getBoolean("chatPreviews", false) ? "Hide message previews" : "Show message previews", "Included apps", "Screenshot protection: " + (prefs.getBoolean("chatBlockScreenshots", true) ? "On" : "Off"), "Clear conversation pins", "Android notification access", "Turn off Chats"), Arrays.asList(
             () -> { chatAvatars.evictAll(); sessionReplies.evictAll(); prefs.edit().putBoolean("chatPreviews", !prefs.getBoolean("chatPreviews", false)).apply(); showChats(); },
-            this::showChatApps,
+            this::showChatApps, this::showChatScreenshotSettings,
             () -> new AlertDialog.Builder(this).setTitle("Clear all conversation pins?")
                 .setMessage("This only removes pins from Alpharail. Your messages stay in their original apps.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Clear pins", (d,w) -> {
@@ -1644,6 +1644,15 @@ public class HomeActivity extends Activity {
                 }).show(),
             () -> startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)),
             () -> { prefs.edit().putBoolean("chatsEnabled", false).putBoolean("chatPreviews", false).apply(); startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }));
+    }
+    private void showChatScreenshotSettings() {
+        boolean blocked = prefs.getBoolean("chatBlockScreenshots", true);
+        new AlertDialog.Builder(this).setTitle("Screenshot protection")
+            .setMessage("When protection is on, Android blocks screenshots and screen recordings of Chats. This does not affect the rest of the launcher.")
+            .setPositiveButton(blocked ? "Allow screenshots" : "Block screenshots", (dialog, which) -> {
+                prefs.edit().putBoolean("chatBlockScreenshots", !blocked).apply();
+                showChatSettings();
+            }).setNegativeButton("Back", (dialog, which) -> showChatSettings()).show();
     }
     private void showChatApps() {
         Set<String> excluded = saved("chatExcluded"); Set<String> packages = new LinkedHashSet<>();
