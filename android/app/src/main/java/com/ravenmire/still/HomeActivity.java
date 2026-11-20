@@ -265,7 +265,7 @@ public class HomeActivity extends Activity {
         appArea.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
         indexScroll = new AlphabetRail(); index = indexScroll;
         indexScroll.setBackground(rounded(surface, 18));
-        appArea.addView(indexScroll, new LinearLayout.LayoutParams(dp(40), -1));
+        appArea.addView(indexScroll, new LinearLayout.LayoutParams(dp(48), -1));
         placeRail();
         undoBar = new LinearLayout(this); undoBar.setVisibility(View.GONE); root.addView(undoBar);
         dismissUndo();
@@ -325,7 +325,12 @@ public class HomeActivity extends Activity {
     private Set<String> saved(String key) { return new HashSet<>(prefs.getStringSet(key, Collections.emptySet())); }
     private void store(String key, Set<String> values) { prefs.edit().putStringSet(key, values).apply(); }
     private void refresh() { populate(scroll.getScrollY()); }
-    private String originalLabel(ResolveInfo app) { return app.loadLabel(getPackageManager()).toString(); }
+    private final Map<String, String> originalLabels = new HashMap<>(), normalizedLabels = new HashMap<>();
+    private final android.util.LruCache<String, android.graphics.drawable.Drawable.ConstantState> iconCache = new android.util.LruCache<>(192);
+    private final android.util.LruCache<String, View> rowCache = new android.util.LruCache<>(192);
+    private final android.util.LruCache<String, AppWidgetHostView> widgetViews = new android.util.LruCache<>(16);
+    private String normalized(String value) { return normalizedLabels.computeIfAbsent(value, this::searchKey); }
+    private String originalLabel(ResolveInfo app) { return originalLabels.computeIfAbsent(key(app), ignored -> app.loadLabel(getPackageManager()).toString()); }
     private String label(ResolveInfo app) {
         String alias = prefs.getString("appAlias:" + key(app), null);
         return alias == null ? originalLabel(app) : alias;
@@ -335,6 +340,8 @@ public class HomeActivity extends Activity {
     private boolean reloadApps() {
         List<ResolveInfo> current = new ArrayList<>(getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0));
         current.removeIf(app -> app.activityInfo.packageName.equals(getPackageName()));
+        Map<String, String> previousLabels = new HashMap<>(originalLabels);
+        originalLabels.clear(); normalizedLabels.clear();
         Collator sorter = Collator.getInstance();
         current.sort((a,b) -> {
             int order = sorter.compare(label(a), label(b));
@@ -343,9 +350,10 @@ public class HomeActivity extends Activity {
         boolean changed = current.size() != apps.size();
         for (int i = 0; !changed && i < current.size(); i++) {
             ResolveInfo app = current.get(i), previous = apps.get(i);
-            changed = !key(app).equals(key(previous)) || !label(app).equals(label(previous))
+            changed = !key(app).equals(key(previous)) || !Objects.equals(originalLabel(app), previousLabels.get(key(previous)))
                 || !Objects.equals(app.activityInfo.applicationInfo.sourceDir, previous.activityInfo.applicationInfo.sourceDir);
         }
+        if (changed) { iconCache.evictAll(); rowCache.evictAll(); }
         apps = current;
         return changed;
     }
@@ -403,6 +411,9 @@ public class HomeActivity extends Activity {
             orderedFavorites.removeIf(hidden::contains);
             for (String key : orderedFavorites) row(byKey.get(key), true, true);
             if (orderedFavorites.isEmpty()) list.addView(text("Star an app below to pin it here.", 14, moss));
+            if (!collections().isEmpty() || !saved("widgets").isEmpty()) {
+                View space = new View(this); list.addView(space, new LinearLayout.LayoutParams(-1, dp(8)));
+            }
             addCollections();
             List<String> widgetIds = widgetOrder();
             if (stackWidgets() && widgetIds.size() > 1) widgetStack(widgetIds);
@@ -425,13 +436,13 @@ public class HomeActivity extends Activity {
         String[] tokens = filter.split("\\s+");
         for (ResolveInfo app : apps) {
             if (hidden.contains(key(app))) continue;
-            String name = searchKey(label(app));
+            String name = normalized(label(app));
             int rank;
             if (name.equals(filter)) rank = 0;
             else if (name.startsWith(filter)) rank = 1;
             else if (name.contains(filter)) rank = 2;
             else if (Arrays.stream(tokens).allMatch(name::contains)) rank = 3;
-            else if (searchKey(originalLabel(app)).contains(filter) || app.activityInfo.packageName.toLowerCase(Locale.ROOT).contains(filter)) rank = 4;
+            else if (normalized(originalLabel(app)).contains(filter) || app.activityInfo.packageName.toLowerCase(Locale.ROOT).contains(filter)) rank = 4;
             else continue;
             ranked.get(rank).add(app);
         }
@@ -866,12 +877,17 @@ public class HomeActivity extends Activity {
         TextView edit = action(name + "  ⋯", () -> showWidgetMenu(value, info, name));
         edit.setContentDescription("Manage " + name + " widget");
         container.addView(edit);
-        AppWidgetHostView view = host.createView(this, id, info);
+        AppWidgetHostView cached = widgetViews.get(value);
+        boolean fresh = cached == null;
+        AppWidgetHostView view = fresh ? host.createView(this, id, info) : cached;
+        if (fresh) widgetViews.put(value, view);
+        if (view.getParent() instanceof ViewGroup) ((ViewGroup)view.getParent()).removeView(view);
         int height = widgetHeight(value, info);
-        view.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> {
-            if (r - l > 0 && r - l != or - ol) {
+        if (fresh) view.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> {
+            if (r - l > 0 && (r - l != or - ol || b - t != ob - ot)) {
                 int width = Math.max(1, toDp(r - l));
-                view.updateAppWidgetSize(null, width, height, width, height);
+                int currentHeight = widgetHeight(value, info);
+                view.updateAppWidgetSize(null, width, currentHeight, width, currentHeight);
             }
         });
         container.addView(view, new LinearLayout.LayoutParams(-1, dp(height)));
@@ -928,7 +944,7 @@ public class HomeActivity extends Activity {
                 Set<String> ids = saved("widgets"); ids.remove(id); store("widgets", ids);
                 List<String> order = widgetOrder(); saveOrder("widgets", order);
                 prefs.edit().remove("widgetHeight:" + id).apply();
-                host.deleteAppWidgetId(Integer.parseInt(id)); refresh();
+                widgetViews.remove(id); host.deleteAppWidgetId(Integer.parseInt(id)); refresh();
             }).show());
         showMenu(name, labels, actions);
     }
@@ -1035,6 +1051,11 @@ public class HomeActivity extends Activity {
         }
     }
     private void row(ResolveInfo app, boolean favorite, boolean inFavorites) {
+        String rowKey = key(app) + "|" + label(app) + "|" + favorite + "|" + inFavorites + "|" + lockedApps.contains(app.activityInfo.packageName)
+            + "|" + prefs.getInt("iconSize", 1) + "|" + prefs.getInt("iconStyle", 0) + "|" + prefs.getInt("iconShape", 0)
+            + "|" + prefs.getInt("fontSize", 1) + "|" + prefs.getInt("fontShape", 0);
+        View reused = rowCache.get(rowKey);
+        if (reused != null && reused.getParent() == null) { list.addView(reused); return; }
         LinearLayout line = new LinearLayout(this); line.setGravity(Gravity.CENTER_VERTICAL);
         int iconSize = new int[]{20, 26, 36}[prefs.getInt("iconSize", 1)];
         int fontSize = new int[]{13, 15, 18, 21}[prefs.getInt("fontSize", 1)];
@@ -1075,7 +1096,7 @@ public class HomeActivity extends Activity {
             });
         });
         star.setGravity(Gravity.CENTER); if (favorite) star.setTextColor(accent); star.setContentDescription((favorite ? "Unfavorite " : "Favorite ") + label(app)); line.addView(star, new LinearLayout.LayoutParams(dp(44), dp(height)));
-        list.addView(line);
+        rowCache.put(rowKey, line); list.addView(line);
     }
     private View appIcon(ResolveInfo app, int size) {
         int style = prefs.getInt("iconStyle", 0), shape = prefs.getInt("iconShape", 0);
@@ -1090,7 +1111,11 @@ public class HomeActivity extends Activity {
             TextView initials = text(initial, Math.max(11, size / 2), ink);
             initials.setGravity(Gravity.CENTER); initials.setTypeface(null, Typeface.BOLD); icon = initials;
         } else {
-            ImageView image = new ImageView(this); image.setImageDrawable(app.loadIcon(getPackageManager()));
+            ImageView image = new ImageView(this);
+            android.graphics.drawable.Drawable.ConstantState state = iconCache.get(key(app));
+            android.graphics.drawable.Drawable drawable = state == null ? app.loadIcon(getPackageManager()) : state.newDrawable(getResources());
+            if (state == null && drawable.getConstantState() != null) iconCache.put(key(app), drawable.getConstantState());
+            image.setImageDrawable(drawable.mutate());
             image.setScaleType(shape == 0 ? ImageView.ScaleType.FIT_CENTER : ImageView.ScaleType.CENTER_CROP);
             if (style == 1) { ColorMatrix grayscale = new ColorMatrix(); grayscale.setSaturation(0); image.setColorFilter(new ColorMatrixColorFilter(grayscale)); }
             icon = image;
@@ -1107,7 +1132,8 @@ public class HomeActivity extends Activity {
         try { return new JSONArray(prefs.getString("widgetRecovery", "[]")); }
         catch (JSONException ignored) { return new JSONArray(); }
     }
-    private void showWidgetRecovery() {
+    private void showWidgetRecovery() { showWidgetRecovery(false); }
+    private void showWidgetRecovery(boolean choose) {
         JSONArray queue = widgetRecovery();
         Map<String, AppWidgetProviderInfo> providers = new HashMap<>();
         for (AppWidgetProviderInfo info : widgets.getInstalledProviders()) providers.put(info.provider.flattenToString(), info);
@@ -1124,12 +1150,17 @@ public class HomeActivity extends Activity {
                 .setMessage(info == null ? "Install the widget’s app before trying again." : "Re-add this widget? Android may ask for permission and the widget may need to be configured again.")
                 .setNeutralButton("Skip", (d,w) -> {
                     if (pending != -1) return;
-                    queue.remove(slot); prefs.edit().putString("widgetRecovery", queue.toString()).apply(); showWidgetRecovery();
-                }).setNegativeButton("Back", (d,w) -> showWidgetRecovery())
+                    queue.remove(slot); prefs.edit().putString("widgetRecovery", queue.toString()).apply(); showWidgetRecovery(choose);
+                }).setNegativeButton("Back", (d,w) -> showWidgets())
                 .setPositiveButton(info == null ? "OK" : "Re-add", (d,w) -> { if (info != null) bindWidget(info, slot); }).show());
         }
         if (labels.isEmpty()) { showWidgets(); return; }
-        showMenu("Recover widgets in this order", labels, actions);
+        if (choose) showMenu("Recover widgets · " + labels.size() + " remaining", labels, actions);
+        else new AlertDialog.Builder(this).setTitle("Recover widgets")
+            .setMessage(labels.size() + " remaining. Next: " + labels.get(0) + ". Existing widgets will stay in place.")
+            .setPositiveButton("Continue", (d,w) -> actions.get(0).run())
+            .setNeutralButton("Choose widget", (d,w) -> showWidgetRecovery(true))
+            .setNegativeButton("Later", null).show();
     }
     private void pickWidget() {
         List<AppWidgetProviderInfo> options = new ArrayList<>(widgets.getInstalledProviders());
@@ -1181,7 +1212,10 @@ public class HomeActivity extends Activity {
         } else host.deleteAppWidgetId(pending);
         boolean recovering = pendingRecovery >= 0;
         pending = -1; pendingRecovery = -1; refresh();
-        if (accepted && recovering && widgetRecovery().length() > 0) showWidgetRecovery();
+        if (accepted && recovering) {
+            if (widgetRecovery().length() > 0) showWidgetRecovery();
+            else Toast.makeText(this, "Widget recovery complete", Toast.LENGTH_SHORT).show();
+        }
     }
     private boolean chatAllowed(String app) {
         if (!ChatNotifications.isMessagingApp(this, app) || saved("locked").contains(app) || saved("chatExcluded").contains(app)) return false;
@@ -1212,9 +1246,16 @@ public class HomeActivity extends Activity {
         LinearLayout buttons = new LinearLayout(this); content.addView(buttons);
         AlertDialog panel = new AlertDialog.Builder(this).setTitle("Chats").setView(content).setNegativeButton("Close", null).create();
         Runnable redraw = () -> fillChats(rows);
+        boolean[] queued = {false};
+        Runnable refreshInbox = () -> { queued[0] = false; redraw.run(); };
+        Runnable live = () -> { if (!queued[0]) { queued[0] = true; handler.postDelayed(refreshInbox, 180); } };
+        ChatNotifications.observers.add(live);
         buttons.addView(action("Refresh", redraw), new LinearLayout.LayoutParams(0, dp(44), 1));
         buttons.addView(action("Chat settings", () -> { panel.dismiss(); showChatSettings(); }), new LinearLayout.LayoutParams(0, dp(44), 1));
         showPrivateChatDialog(panel); panel.getWindow().setLayout(-1, Math.min(dp(640), Math.round(getResources().getDisplayMetrics().heightPixels * .86f)));
+        panel.setOnDismissListener(ignored -> {
+            privateChatDialogs.remove(panel); ChatNotifications.observers.remove(live); handler.removeCallbacks(refreshInbox);
+        });
         redraw.run();
     }
     private void fillChats(LinearLayout rows) {
@@ -1390,7 +1431,7 @@ public class HomeActivity extends Activity {
     }
     private void exportSettings(Uri uri, boolean appearanceOnly) throws IOException, JSONException {
         JSONObject backup = new JSONObject().put("format", appearanceOnly ? "still-appearance" : "still-settings")
-            .put("version", appearanceOnly ? 1 : 3);
+            .put("version", appearanceOnly ? 1 : 4);
         JSONObject looks = new JSONObject();
         for (int i = 0; i < APPEARANCE.length; i++) looks.put(APPEARANCE[i], prefs.getInt(APPEARANCE[i], DEFAULTS[i]));
         backup.put("appearance", looks);
@@ -1406,6 +1447,12 @@ public class HomeActivity extends Activity {
             JSONArray queued = widgetRecovery();
             for (int i = 0; i < queued.length() && recipes.length() < 256; i++) recipes.put(queued.getJSONObject(i));
             backup.put("widgetLayout", recipes);
+            JSONObject aliases = new JSONObject();
+            for (Map.Entry<String, ?> item : prefs.getAll().entrySet()) {
+                if (item.getKey().startsWith("appAlias:") && item.getValue() instanceof String)
+                    aliases.put(item.getKey().substring("appAlias:".length()), item.getValue());
+            }
+            backup.put("aliases", aliases);
             backup.put("favorites", new JSONArray(favorites)).put("hidden", new JSONArray(new TreeSet<>(saved("hidden"))))
                 .put("collections", new JSONArray(prefs.getString("collections", "[]"))).put("stackWidgets", stackWidgets());
         }
@@ -1439,7 +1486,8 @@ public class HomeActivity extends Activity {
             backup = new JSONObject(data.toString("UTF-8"));
         }
         Object version = backup.get("version");
-        boolean hasWidgets = !appearanceOnly && Integer.valueOf(3).equals(version);
+        boolean hasAliases = !appearanceOnly && Integer.valueOf(4).equals(version);
+        boolean hasWidgets = hasAliases || (!appearanceOnly && Integer.valueOf(3).equals(version));
         boolean extended = hasWidgets || (!appearanceOnly && Integer.valueOf(2).equals(version));
         JSONArray recipes = new JSONArray();
         if (hasWidgets) {
@@ -1456,6 +1504,20 @@ public class HomeActivity extends Activity {
         }
         if (!(appearanceOnly ? "still-appearance" : "still-settings").equals(backup.get("format"))
             || (!extended && !Integer.valueOf(1).equals(version))) throw new JSONException("Unsupported backup format");
+        Map<String, String> aliases = new LinkedHashMap<>();
+        if (hasAliases) {
+            JSONObject incoming = backup.getJSONObject("aliases");
+            if (incoming.length() > 5000) throw new JSONException("Too many custom app names");
+            Iterator<String> ids = incoming.keys();
+            while (ids.hasNext()) {
+                String id = ids.next(); Object name = incoming.get(id);
+                if (id.length() > 512 || !id.matches("[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+") || !(name instanceof String))
+                    throw new JSONException("Invalid custom app name");
+                String alias = ((String)name).replaceAll("[\\p{Cc}\\p{Cf}]", "").trim();
+                if (alias.isEmpty() || alias.length() > 40) throw new JSONException("Invalid custom app name");
+                aliases.put(ComponentName.unflattenFromString(id).flattenToString(), alias);
+            }
+        }
         List<String> favorites = appearanceOnly ? Collections.emptyList() : backupApps(backup, "favorites");
         List<String> hidden = appearanceOnly ? Collections.emptyList() : backupApps(backup, "hidden");
         JSONArray groups = new JSONArray();
@@ -1481,19 +1543,27 @@ public class HomeActivity extends Activity {
         String summary = appearanceOnly ? "Use this preset’s " + (values[values.length - 1] == 0 ? "White" : "Black")
             + " theme, icons, fonts, and rail side? Your apps and widgets stay unchanged."
             : "Replace Favorites, hidden apps, and appearance" + (extended ? ", plus Collections and the widget stack preference" : "")
-            + "? Installed widgets and App Lock stay unchanged."
+            + "?\n\n" + favorites.size() + " Favorites · " + hidden.size() + " hidden apps"
+            + (extended ? " · " + groups.length() + " Collections" : "")
+            + (hasAliases ? " · " + aliases.size() + " custom names" : "")
+            + (hasWidgets ? " · " + recipes.length() + " widgets to recover" : "")
+            + "\n\nInstalled widgets and App Lock stay unchanged."
             + (hasWidgets ? " This replaces the recovery list. To re-add widgets, open Widgets → Recover widgets." : "");
         new AlertDialog.Builder(this).setTitle(appearanceOnly ? "Apply appearance preset?" : "Restore settings?")
             .setMessage(summary).setNegativeButton("Cancel", null).setPositiveButton(appearanceOnly ? "Apply" : "Restore", (d,w) -> {
                 android.content.SharedPreferences.Editor edit = prefs.edit();
                 if (!appearanceOnly) edit.putStringSet("favorites", new HashSet<>(favorites))
                     .putString("favoritesOrder", String.join("\n", favorites)).putStringSet("hidden", new HashSet<>(hidden));
+                if (hasAliases) {
+                    for (String pref : prefs.getAll().keySet()) if (pref.startsWith("appAlias:")) edit.remove(pref);
+                    for (Map.Entry<String, String> alias : aliases.entrySet()) edit.putString("appAlias:" + alias.getKey(), alias.getValue());
+                }
                 if (hasWidgets) edit.putString("widgetRecovery", recipes.toString());
                 if (extended) edit.putString("collections", groups.toString()).putBoolean("stackWidgets", backup.optBoolean("stackWidgets"));
                 for (int i = 0; i < APPEARANCE.length; i++) edit.putInt(APPEARANCE[i], values[i]);
                 boolean themeChanged = prefs.getInt("theme", 0) != values[values.length - 1];
                 edit.apply(); dismissUndo();
-                if (themeChanged) recreate(); else { placeRail(); refresh(); }
+                if (themeChanged) recreate(); else { if (hasAliases) reloadApps(); placeRail(); refresh(); }
             }).show();
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
