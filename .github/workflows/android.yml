@@ -64,21 +64,21 @@ jobs:
           APK: ${{ steps.build.outputs.apk }}
           TAG: ${{ steps.build.outputs.tag }}
         run: gh release create "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Still $TAG" --generate-notes
-      - name: Publish v0.3.0 Preview 2
+      - name: Publish v0.3.0 Preview 3
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outputs.tag == 'v0.3.0'
         env:
           GH_TOKEN: ${{ github.token }}
           APK: ${{ steps.build.outputs.apk }}
         run: |
-          tag=v0.3.0-preview.2
+          tag=v0.3.0-preview.3
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
           Development preview for Android 8.0 and later.
 
-          - A full-width **Open launcher** button on the welcome screen.
-          - White, neutral theme and launcher settings grouped into Icons, Fonts, App list, and Privacy.
-          - Chats lists supported messaging apps only. **Open app** launches the messaging app directly; **Open chat** uses a compatible notification link when available. Inline replies are unchanged.
+          - Redesigned welcome, home clock card, and card-based Launcher settings.
+          - Optional Black theme alongside the default White theme.
+          - Tap the home clock to open Android Clock. Tap or drag along the alphabet rail to move through the list with an animated letter indicator.
 
-          This is a prerelease. If you have Preview 1 or another development build installed, export your Still settings if available, then uninstall the old build before installing this APK. The temporary signing keys differ. Widgets and App Lock are not included in settings backups. WhatsApp launch behavior still needs device verification.
+          This is a prerelease. Export Still settings if available, then uninstall any previous development build before installing this APK because the signing keys differ. Widgets and App Lock are not included in settings backups.
           NOTES
-          gh release create "$tag" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Still v0.3.0 Preview 2' --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create "$tag" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Still v0.3.0 Preview 3' --prerelease --notes-file "$RUNNER_TEMP/release-notes.md"
