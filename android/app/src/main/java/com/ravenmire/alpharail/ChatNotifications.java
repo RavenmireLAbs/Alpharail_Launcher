@@ -1,4 +1,4 @@
-package com.ravenmire.still;
+package com.ravenmire.alpharail;
 
 import android.app.Notification;
 import android.app.RemoteInput;

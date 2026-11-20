@@ -1,13 +1,13 @@
 plugins { id 'com.android.application' version '8.7.3' }
 android {
-    namespace 'com.ravenmire.still'
+    namespace 'com.ravenmire.alpharail'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.ravenmire.still'
+        applicationId 'com.ravenmire.alpharail'
         minSdk 26
         targetSdk 34
-        versionCode 9
-        versionName '0.3.2'
+        versionCode 10
+        versionName '0.3.3'
     }
     signingConfigs {
         distribution {

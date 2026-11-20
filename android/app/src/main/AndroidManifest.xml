@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent><intent><action android:name="android.provider.Telephony.SMS_DELIVER"/></intent><intent><action android:name="android.intent.action.SHOW_ALARMS"/></intent><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.APP_CALENDAR"/></intent></queries>
-    <application android:label="Still" android:allowBackup="false" android:theme="@style/StillTheme">
-        <service android:name=".ChatNotifications" android:label="Still Chats" android:exported="true" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+    <application android:label="Alpharail" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:allowBackup="false" android:theme="@style/StillTheme">
+        <service android:name=".ChatNotifications" android:label="Alpharail Chats" android:exported="true" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter>
         </service>
         <activity android:name=".HomeActivity" android:exported="true" android:launchMode="singleTask">
