@@ -101,6 +101,7 @@ public class HomeActivity extends Activity {
             prefs.edit().putBoolean("showHomeWallpaper", true)
                 .putInt("bundledWallpaper", -1).apply();
         }
+        if (!prefs.contains("newAppsSince")) prefs.edit().putLong("newAppsSince", System.currentTimeMillis()).apply();
         if (prefs.getBoolean("scheduledTheme", false) && !prefs.getBoolean("showHomeWallpaper", false)) {
             boolean night = scheduledNight();
             prefs.edit().putInt("theme", night ? 1 : 0).apply();
@@ -177,7 +178,7 @@ public class HomeActivity extends Activity {
         super.onResume(); updateForeground = true;
         if (!welcome && clock != null) { handler.removeCallbacks(tick); handler.post(tick); }
         if (!welcome && scroll != null) {
-            if (reloadApps() || prefs.getBoolean("appDots", false) || prefs.getBoolean("showWork", false)) refresh();
+            if (reloadApps() || prefs.getBoolean("appDots", false) || prefs.getBoolean("showWork", false) || prefs.getBoolean("showNewApps", true)) refresh();
             if (prefs.getBoolean("autoUpdates", false)) checkUpdates(false);
         }
     }
@@ -972,11 +973,47 @@ public class HomeActivity extends Activity {
     }
     private void showSettings() {
         showSettingsPage("Launcher settings", "Everything in its place",
-            new String[]{"Appearance", "Home & apps", "Notifications & Chats", "Privacy", "Accessibility", "Backup and restore", "System"},
-            new String[]{"Wallpaper, themes, schedule, icons and fonts", "Clock, widgets, Favorites, alphabet and work apps", "App dots, messaging and notification access", "Hidden apps and App Lock", "Alphabet size, motion and text contrast", "Export, import and appearance presets", "Updates and default launcher"},
-            new String[]{"◐", "⌂", "▤", "◇", "Aa", "⇅", "⚙"},
-            Arrays.asList(this::showAppearanceSettings, this::showHomeAppSettings, this::showNotificationSettings,
+            new String[]{"Search settings", "Appearance", "Home & apps", "Notifications & Chats", "Privacy", "Accessibility", "Backup and restore", "System"},
+            new String[]{"Find a setting by name", "Wallpaper, themes, schedule, icons and fonts", "Clock, widgets, Favorites, alphabet and work apps", "App dots, messaging and notification access", "Hidden apps and App Lock", "Alphabet size, motion and text contrast", "Export, import and appearance presets", "Updates and default launcher"},
+            new String[]{"⌕", "◐", "⌂", "▤", "◇", "Aa", "⇅", "⚙"},
+            Arrays.asList(this::showSettingsSearch, this::showAppearanceSettings, this::showHomeAppSettings, this::showNotificationSettings,
                 this::showPrivacySettings, this::showAccessibilitySettings, this::backupMenu, this::showSystemSettings), null);
+    }
+    private void showSettingsSearch() {
+        showSettingsOptions("Search settings", Arrays.asList(
+            "Wallpaper · Appearance", "Wallpaper presets · Appearance", "Theme · Appearance", "Theme schedule · Appearance",
+            "Icons · Appearance", "Fonts · Appearance", "Clock · Home & apps", "Widgets · Home & apps",
+            "Favorites · Home & apps", "Collections · Home & apps", "Alphabet side · Home & apps", "Alphabet color · Home & apps",
+            "Work apps · Home & apps", "New app indicator · Home & apps", "Notification dots · Notifications & Chats",
+            "Chats · Notifications & Chats", "Hidden apps · Privacy", "App lock · Privacy", "Accessibility · Size, motion, contrast",
+            "Backup and restore · Export, import", "Updates · System", "Default launcher · System"), Arrays.asList(
+            this::showWallpaperSettings, this::showWallpaperPresets, this::showAppearanceSettings, this::showSchedule,
+            this::showIconSettings, this::showFontSettings, this::showClockSettings, this::showWidgets,
+            this::reorderFavorites, this::manageCollections, this::showListSettings, this::showRailColorSettings,
+            this::showWorkSettings, this::showNewAppSettings, this::showNotificationSettings,
+            () -> { if (chatEnabled()) showChatSettings(); else showChats(); }, this::showHiddenApps, this::requestLockSettings,
+            this::showAccessibilitySettings, this::backupMenu, this::showUpdateSettings, this::setHome), this::showSettings);
+    }
+    private void showNewAppSettings() {
+        showSettingsOptions("New app indicator", Arrays.asList(prefs.getBoolean("showNewApps", true) ? "New labels: On" : "New labels: Off"),
+            Arrays.asList(() -> {
+                prefs.edit().putBoolean("showNewApps", !prefs.getBoolean("showNewApps", true)).apply();
+                rowCache.evictAll(); refresh(); showNewAppSettings();
+            }), this::showHomeAppSettings);
+    }
+    private boolean isNewApp(String packageName) {
+        if (!prefs.getBoolean("showNewApps", true)) return false;
+        try {
+            long installed = getPackageManager().getPackageInfo(packageName, 0).firstInstallTime;
+            return installed > prefs.getLong("newAppsSince", Long.MAX_VALUE)
+                && prefs.getLong("openedInstall:" + packageName, -1) != installed;
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) { return false; }
+    }
+    private void markAppOpened(String packageName) {
+        try {
+            prefs.edit().putLong("openedInstall:" + packageName, getPackageManager().getPackageInfo(packageName, 0).firstInstallTime).apply();
+            rowCache.evictAll();
+        } catch (android.content.pm.PackageManager.NameNotFoundException ignored) { }
     }
     private void showAppearanceSettings() {
         showSettingsGroup("Appearance", Arrays.asList("Home wallpaper", "Wallpaper presets", "Theme", "Theme schedule", "Icons", "Fonts"),
@@ -987,8 +1024,8 @@ public class HomeActivity extends Activity {
                 } else showThemeSettings(); }, this::showSchedule, this::showIconSettings, this::showFontSettings));
     }
     private void showHomeAppSettings() {
-        showSettingsGroup("Home & apps", Arrays.asList("Clock", "Widgets", "Reorder Favorites", "Collections", "Alphabet", "Work apps"),
-            Arrays.asList(this::showClockSettings, this::showWidgets, this::reorderFavorites, this::manageCollections, this::showListSettings, this::showWorkSettings));
+        showSettingsGroup("Home & apps", Arrays.asList("Clock", "Widgets", "Reorder Favorites", "Collections", "Alphabet", "Work apps", "New app indicator"),
+            Arrays.asList(this::showClockSettings, this::showWidgets, this::reorderFavorites, this::manageCollections, this::showListSettings, this::showWorkSettings, this::showNewAppSettings));
     }
     private void showSystemSettings() {
         showSettingsGroup("System", Arrays.asList("Updates", "Set as Home"), Arrays.asList(this::showUpdateSettings, this::setHome));
@@ -1105,6 +1142,28 @@ public class HomeActivity extends Activity {
             TextView arrow = text("›", 20, accent); if (wallpaper) styleWallpaperPanelText(arrow); row.addView(arrow);
             for (int child = 0; child < row.getChildCount(); child++) row.getChildAt(child).setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.bottomMargin = dp(7); cards.addView(row, spacing);
+        }
+        if ("Search settings".equals(title)) {
+            android.widget.EditText input = new android.widget.EditText(this);
+            input.setSingleLine(true); input.setHint("Search settings");
+            input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+            if (wallpaper) styleWallpaperDialogContent(input);
+            content.addView(input, content.indexOfChild(scroll));
+            TextView empty = text("No matching settings", 15, wallpaper ? wallpaperPanelTextColor() : ink);
+            cards.addView(empty); empty.setVisibility(View.GONE);
+            input.addTextChangedListener(new android.text.TextWatcher() {
+                public void beforeTextChanged(CharSequence value, int start, int count, int after) { }
+                public void onTextChanged(CharSequence value, int start, int before, int count) {
+                    String query = searchKey(value.toString()); int matches = 0;
+                    for (int i = 0; i < labels.length; i++) {
+                        boolean match = searchKey(labels[i]).contains(query);
+                        cards.getChildAt(i).setVisibility(match ? View.VISIBLE : View.GONE);
+                        if (match) matches++;
+                    }
+                    empty.setVisibility(matches == 0 ? View.VISIBLE : View.GONE);
+                }
+                public void afterTextChanged(android.text.Editable value) { }
+            });
         }
         page.setOnCancelListener(d -> { if (back != null) back.run(); });
         page.setContentView(content); keepOnlyWallpaperBehind(page); page.show();
@@ -1566,11 +1625,11 @@ public class HomeActivity extends Activity {
         try {
             if (manager != null && manager.hasShortcutHostPermission()) {
                 LauncherApps.ShortcutQuery request = new LauncherApps.ShortcutQuery().setPackage(app.activityInfo.packageName)
-                    .setQueryFlags(LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC | LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST);
+                    .setQueryFlags(LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC | LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST | LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED);
                 List<ShortcutInfo> shortcuts = manager.getShortcuts(request, android.os.Process.myUserHandle());
                 if (shortcuts != null) for (ShortcutInfo shortcut : shortcuts) {
                     if (!shortcut.isEnabled() || shortcut.getShortLabel() == null || (shortcut.getActivity() != null && !component(app).equals(shortcut.getActivity()))) continue;
-                    labels.add(shortcut.getShortLabel().toString()); actions.add(() -> openApp(app, shortcut.getId()));
+                    labels.add("↗  " + shortcut.getShortLabel().toString()); actions.add(() -> openApp(app, shortcut.getId()));
                 }
             }
         } catch (IllegalStateException | SecurityException ignored) { }
@@ -1587,7 +1646,7 @@ public class HomeActivity extends Activity {
     private void launchTarget(ComponentName component, String shortcut) {
         if (component == null) return;
         if (shortcut == null) { launch(component); return; }
-        try { getSystemService(LauncherApps.class).startShortcut(component.getPackageName(), shortcut, null, null, android.os.Process.myUserHandle()); }
+        try { getSystemService(LauncherApps.class).startShortcut(component.getPackageName(), shortcut, null, null, android.os.Process.myUserHandle()); markAppOpened(component.getPackageName()); }
         catch (ActivityNotFoundException | IllegalStateException | SecurityException e) {
             Toast.makeText(this, "Shortcut unavailable", Toast.LENGTH_SHORT).show();
         }
@@ -1597,17 +1656,18 @@ public class HomeActivity extends Activity {
         LauncherApps launcher = getSystemService(LauncherApps.class);
         if (launcher != null) try {
             launcher.startMainActivity(component, android.os.Process.myUserHandle(), null, null);
+            markAppOpened(component.getPackageName());
             return;
         } catch (ActivityNotFoundException | SecurityException | IllegalStateException ignored) {
             // Some devices or launcher entries reject LauncherApps; try the public intent path.
         }
-        try { startActivity(Intent.makeMainActivity(component)); return; }
+        try { startActivity(Intent.makeMainActivity(component)); markAppOpened(component.getPackageName()); return; }
         catch (ActivityNotFoundException | SecurityException ignored) { }
         String packageName = component.getPackageName();
         Intent main = getPackageManager().getLaunchIntentForPackage(packageName);
         if (main != null && main.getComponent() != null && packageName.equals(main.getComponent().getPackageName())
             && !component.equals(main.getComponent())) {
-            try { startActivity(main); return; }
+            try { startActivity(main); markAppOpened(component.getPackageName()); return; }
             catch (ActivityNotFoundException | SecurityException ignored) { }
         }
         Toast.makeText(this, "Couldn't open " + chatAppName(packageName), Toast.LENGTH_SHORT).show();
@@ -1858,7 +1918,7 @@ public class HomeActivity extends Activity {
         return title;
     }
     private void row(ResolveInfo app, boolean favorite, boolean inFavorites) {
-        String rowKey = key(app) + "|" + label(app) + "|" + favorite + "|" + inFavorites + "|" + lockedApps.contains(app.activityInfo.packageName)
+        String rowKey = isNewApp(app.activityInfo.packageName) + "|" + key(app) + "|" + label(app) + "|" + favorite + "|" + inFavorites + "|" + lockedApps.contains(app.activityInfo.packageName)
             + "|" + prefs.getInt("iconSize", 1) + "|" + prefs.getInt("iconStyle", 0) + "|" + prefs.getInt("iconShape", 0)
             + "|" + prefs.getInt("fontSize", 1) + "|" + prefs.getInt("fontShape", 0);
         rowKey += "|dots:" + (prefs.getBoolean("appDots", false) && !saved("dotExcluded").contains(app.activityInfo.packageName) && ChatNotifications.hasNotification(app.activityInfo.packageName));
@@ -1887,6 +1947,11 @@ public class HomeActivity extends Activity {
         LinearLayout.LayoutParams iconSpace = new LinearLayout.LayoutParams(dp(iconSize), dp(iconSize));
         iconSpace.setMarginEnd(dp(10)); launchRow.addView(icon, iconSpace);
         launchRow.addView(open, new LinearLayout.LayoutParams(0, -1, 1));
+        if (isNewApp(app.activityInfo.packageName)) {
+            TextView badge = text("New", 11, moss); styleWallpaperText(badge);
+            badge.setPadding(dp(6), 0, dp(6), 0); badge.setGravity(Gravity.CENTER_VERTICAL);
+            badge.setContentDescription("Newly installed"); launchRow.addView(badge);
+        }
         line.addView(launchRow, new LinearLayout.LayoutParams(0, dp(height), 1));
         launchRow.setOnLongClickListener(v -> { showAppActions(app, inFavorites); return true; });
         TextView star = action(favorite ? "★" : "☆", () -> {
