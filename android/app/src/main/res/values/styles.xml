@@ -1,9 +1,15 @@
 <resources>
     <style name="StillTheme" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:colorAccent">#42464D</item>
+        <item name="android:colorAccent">#3448CE</item>
         <item name="android:windowBackground">#FFFFFF</item>
         <item name="android:colorBackground">#FFFFFF</item>
         <item name="android:colorBackgroundFloating">#FFFFFF</item>
         <item name="android:forceDarkAllowed">false</item>
+    </style>
+    <style name="StillBlackTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:colorAccent">#A0ADFF</item>
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:colorBackground">#000000</item>
+        <item name="android:colorBackgroundFloating">#151821</item>
     </style>
 </resources>

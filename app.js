@@ -33,6 +33,8 @@ function alignDialog() {
 function menu(title, entries, extra, bottom = false) {
   alignDialog();
   dialog.classList.toggle('bottom-panel', bottom);
+  dialog.classList.remove('settings-page');
+  dialog.querySelector('.settings-subtitle')?.remove();
   $('menu-close').hidden = bottom;
   $('menu-title').classList.toggle('sr-only', bottom);
   $('menu-title').textContent = title;
@@ -73,7 +75,7 @@ function appMenu(name, inFavorites) {
   if (inFavorites) items.push(...moves(favorites, name, favorites.filter(app => !hidden.includes(app))));
   menu(name, items);
 }
-const appearanceMax = {iconStyle:2, iconSize:2, iconShape:3, fontSize:3, fontShape:3, railSide:1};
+const appearanceMax = {iconStyle:2, iconSize:2, iconShape:3, fontSize:3, fontShape:3, railSide:1, theme:1};
 function backupMenu() {
   menu('Backup and restore', [['Export settings', () => {
     const backup = JSON.stringify({format:'still-preview-settings', version:1, favorites, hidden, appearance}, null, 2);
@@ -119,16 +121,38 @@ function widgetSettings() {
   }]), widgets.length >= demoWidgets.size ? hint('All demo widgets are already added.') : undefined)],
   ...widgets.map(name => [`Manage ${name}`, () => widgetMenu(name)])]);
 }
+const settingCards = {
+  Theme: ['◐', () => appearance.theme === 1 ? 'Black palette' : 'White palette'],
+  Icons: ['▦', 'Style, size and shape'], Fonts: ['Aa', 'Typeface and text size'],
+  'App list': ['A–Z', 'Favorites and alphabet placement'], Privacy: ['◇', 'Hidden apps and App Lock'],
+  'Backup and restore': ['⇅', 'Move your settings to another device'], Back: ['‹', 'Launcher settings'],
+};
+function settingsPage(title, entries, subtitle) {
+  const intro = document.createElement('p'); intro.className = 'settings-subtitle'; intro.textContent = subtitle;
+  menu(title, entries);
+  dialog.classList.add('settings-page');
+  $('menu-title').after(intro);
+  for (const node of $('menu-items').querySelectorAll('button')) {
+    const label = node.textContent, [mark, detail] = settingCards[label] ?? ['·', ''];
+    const icon = document.createElement('span'); icon.className = 'settings-glyph'; icon.textContent = mark; icon.setAttribute('aria-hidden', 'true');
+    const copy = document.createElement('span'); copy.className = 'settings-copy';
+    const name = document.createElement('strong'); name.textContent = label; copy.append(name);
+    if (detail) { const desc = document.createElement('small'); desc.textContent = typeof detail === 'function' ? detail() : detail; copy.append(desc); }
+    const arrow = document.createElement('span'); arrow.className = 'settings-arrow'; arrow.textContent = '›'; arrow.setAttribute('aria-hidden', 'true');
+    node.replaceChildren(icon, copy, arrow);
+  }
+}
 function launcherSettings() {
-  menu('Launcher settings', [
+  settingsPage('Launcher settings', [
+    ['Theme', () => appearanceSetting('Theme', 'theme', ['White', 'Black'], 0, launcherSettings)],
     ['Icons', iconSettings],
     ['Fonts', fontSettings],
     ['App list', listSettings],
     ['Privacy', privacySettings],
     ['Backup and restore', backupMenu],
-  ]);
+  ], 'Make Still yours');
 }
-function settingsGroup(title, entries) { menu(title, [...entries, ['Back', launcherSettings]]); }
+function settingsGroup(title, entries) { settingsPage(title, [...entries, ['Back', launcherSettings]], 'Customize your launcher'); }
 function iconSettings() {
   settingsGroup('Icons', [
     ['Icon style', () => appearanceSetting('Icon style', 'iconStyle', ['Original', 'Monochrome', 'Initials'], 0, iconSettings)],
@@ -239,14 +263,51 @@ function widgetRow(name) {
   title.append(label, button('⋯', () => widgetMenu(name), `Manage ${name} widget`));
   widget.append(title, value); return widget;
 }
+let railPointer = null, activeLetter = null, hideBubbleTimer;
+const bubble = $('letter-bubble'), reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const railHeadings = new WeakMap();
+function clearLetter() {
+  clearTimeout(hideBubbleTimer);
+  activeLetter?.classList.remove('active-letter'); activeLetter = null;
+  bubble.classList.remove('visible');
+}
+function selectLetter(letter, animate = false) {
+  if (!letter || letter === activeLetter) return;
+  clearTimeout(hideBubbleTimer);
+  const group = railHeadings.get(letter);
+  const top = group.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+  list.scrollTo({top, behavior: animate && !reducedMotion.matches ? 'smooth' : 'instant'});
+  activeLetter?.classList.remove('active-letter'); activeLetter = letter;
+  letter.classList.add('active-letter'); bubble.textContent = letter.textContent;
+  bubble.classList.add('visible');
+  if (!reducedMotion.matches) bubble.animate([{transform:'scale(.84)'}, {transform:'scale(1)'}], {duration:135, easing:'ease-out'});
+}
+function scrubRail(y) {
+  const letter = [...rail.children].find(node => y < node.getBoundingClientRect().bottom) ?? rail.lastElementChild;
+  selectLetter(letter);
+}
+rail.addEventListener('pointerdown', event => {
+  if (railPointer !== null || event.button !== 0) return;
+  event.preventDefault(); railPointer = event.pointerId;
+  rail.setPointerCapture(event.pointerId); scrubRail(event.clientY);
+});
+rail.addEventListener('pointermove', event => { if (railPointer === event.pointerId) scrubRail(event.clientY); });
+for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) rail.addEventListener(type, event => {
+  if (railPointer !== event.pointerId) return;
+  railPointer = null; hideBubbleTimer = setTimeout(clearLetter, 180);
+});
 function section(title, shortcut) {
   const group = document.createElement('section');
   const heading = document.createElement('div'); heading.className = 'letter'; heading.textContent = title;
   group.append(heading); list.append(group);
-  if (shortcut) rail.append(button(shortcut, () => {
-    const top = group.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
-    list.scrollTo({top});
-  }, shortcut === '★' ? 'Jump to Favorites' : `Jump to ${shortcut}`));
+  if (shortcut) {
+    const jump = button(shortcut, event => {
+      if (event.detail !== 0) return;
+      selectLetter(jump, true);
+      clearTimeout(hideBubbleTimer); hideBubbleTimer = setTimeout(clearLetter, 420);
+    }, shortcut === '★' ? 'Jump to Favorites' : `Jump to ${shortcut}`);
+    railHeadings.set(jump, group); rail.append(jump);
+  }
   return group;
 }
 function hint(value) {
@@ -255,12 +316,14 @@ function hint(value) {
 }
 function render(y) {
   const launcher = $('launcher');
+  document.querySelector('.stage').dataset.theme = appearance.theme === 1 ? 'black' : 'white';
   launcher.dataset.railSide = appearance.railSide === 1 ? 'left' : 'right';
   launcher.dataset.iconStyle = appearance.iconStyle ?? 0;
   launcher.dataset.iconShape = appearance.iconShape ?? 0;
   launcher.style.setProperty('--preview-icon-size', `${[19, 23, 32][appearance.iconSize ?? 1]}px`);
   launcher.style.setProperty('--preview-font-size', `${[11, 13, 16, 19][appearance.fontSize ?? 1]}px`);
   launcher.style.setProperty('--preview-font', ['Arial, sans-serif', 'ui-rounded, "Trebuchet MS", sans-serif', 'Georgia, serif', 'monospace'][appearance.fontShape ?? 0]);
+  clearLetter(); railPointer = null;
   list.replaceChildren(); rail.replaceChildren();
   const query = filterKey(search.value);
   rail.hidden = Boolean(query);
@@ -419,3 +482,4 @@ function chatSettings() {
   ]);
 }
 $('chats').onclick = showChats;
+$('home-clock').onclick = () => openDemoTarget('Clock');

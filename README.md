@@ -15,7 +15,7 @@ On the launcher screen:
 - **Launcher settings** control icon style, size and shape, font size and typeface, Hidden apps, and Favorites order. Hiding apps does not uninstall them.
 - **Widgets** lets you add or manage widgets. Resize changes the height when the provider supports vertical resizing.
 - **App lock** uses the device PIN, pattern, or password to manage locked apps and open them from Still. It does not lock apps system-wide. The browser only simulates unlocking.
-- **Still uses a white, neutral theme**, including when Android is set to dark mode.
+- **Launcher settings → Theme** lets you choose White (the default) or Black, independently of the Android system theme.
 
 Build a local test APK with JDK 17, Gradle 8.9 and Android SDK 35: `gradle -p android assembleDebug`. The Android APK workflow builds and checks the APK signature. If release signing secrets are unavailable, the workflow produces an installable APK signed with a temporary development key. A later APK signed with a different key requires uninstalling this build first. Release signing uses the repository secrets `STILL_KEYSTORE_BASE64` and `STILL_STORE_PASSWORD`; reuse the same key for updates.
 
@@ -24,6 +24,7 @@ On Linux x86-64 without an Android SDK installation, `android/scripts/package-ap
 ## Search, long-press, and backups
 
 - Press **Enter** or the keyboard's **Search** key to launch the first visible search result. App Lock still applies.
+- Tap or drag along the **alphabet rail** to move through the same app list. The letter indicator follows your selection and respects reduced-motion settings.
 - Tap **Undo** after hiding apps or removing a Favorite to restore it without opening Settings.
 - Hold an app to open its Android **App info** or one of its supported shortcuts. Shortcuts require Still to be the default Home app and the installed app to expose them.
 - Under **Launcher settings → App list → Alphabet side**, choose **Left** or **Right**.
@@ -33,7 +34,7 @@ On Linux x86-64 without an Android SDK installation, `android/scripts/package-ap
 
 The published development builds up through v0.2.0 used temporary keys. Switching to a persistent key requires a one-time uninstall; export settings first if the installed build offers that feature. Never commit or share the signing key. Generate and retain one PKCS#12 keystore with alias `still`, for example with `keytool -genkeypair -storetype PKCS12 -keystore still-release.p12 -alias still -keyalg RSA -keysize 3072 -validity 10000`. Store a secure offline backup.
 
-In GitHub Actions settings, configure `STILL_KEYSTORE_BASE64` (the base64-encoded keystore) and `STILL_STORE_PASSWORD` as repository secrets, plus `STILL_CERTIFICATE_SHA256` as a repository variable. The fingerprint is the `SHA256` certificate fingerprint printed by `keytool -list -v -storetype PKCS12 -keystore still-release.p12 -alias still`. Keep the same certificate pinned across releases. After bumping `versionCode` and `versionName` in `android/app/build.gradle`, run **Android APK** on `main` with **publish** enabled. The workflow refuses to publish without persistent signing and rejects a certificate fingerprint mismatch. Ordinary builds do not publish, except for the explicitly labeled v0.3.0 Preview 2 prerelease on main.
+In GitHub Actions settings, configure `STILL_KEYSTORE_BASE64` (the base64-encoded keystore) and `STILL_STORE_PASSWORD` as repository secrets, plus `STILL_CERTIFICATE_SHA256` as a repository variable. The fingerprint is the `SHA256` certificate fingerprint printed by `keytool -list -v -storetype PKCS12 -keystore still-release.p12 -alias still`. Keep the same certificate pinned across releases. After bumping `versionCode` and `versionName` in `android/app/build.gradle`, run **Android APK** on `main` with **publish** enabled. The workflow refuses to publish without persistent signing and rejects a certificate fingerprint mismatch. Ordinary builds do not publish, except for the explicitly labeled v0.3.0 Preview 3 prerelease on main.
 
 ## Optional Chats inbox
 

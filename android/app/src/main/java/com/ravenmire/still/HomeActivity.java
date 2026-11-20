@@ -29,13 +29,18 @@ import java.util.*;
 
 public class HomeActivity extends Activity {
     private int paper, ink, moss, dividerColor;
+    private static final int PRIMARY = 0xff4039b4;
+    private int accent, surface;
     private EditText search;
     private String query = "";
     private int beforeSearch;
     private List<ResolveInfo> apps = Collections.emptyList();
     private Set<String> lockedApps = Collections.emptySet();
     private android.content.SharedPreferences prefs;
-    private ScrollView scroll, indexScroll;
+    private ScrollView scroll;
+    private AlphabetRail indexScroll;
+    private TextView letterBubble, selectedLetter;
+    private final Runnable hideLetter = () -> showLetter(null);
     private LinearLayout root, list, index;
     private AppWidgetHost host;
     private AppWidgetManager widgets;
@@ -45,8 +50,8 @@ public class HomeActivity extends Activity {
     private Runnable undoAction;
     private final Runnable expireUndo = this::dismissUndo;
     private static final int EXPORT_SETTINGS = 23, IMPORT_SETTINGS = 24;
-    private static final String[] APPEARANCE = {"iconStyle", "iconSize", "iconShape", "fontSize", "fontShape", "railSide"};
-    private static final int[] DEFAULTS = {0, 1, 0, 1, 0, 0}, MAXIMUMS = {2, 2, 3, 3, 3, 1};
+    private static final String[] APPEARANCE = {"iconStyle", "iconSize", "iconShape", "fontSize", "fontShape", "railSide", "theme"};
+    private static final int[] DEFAULTS = {0, 1, 0, 1, 0, 0, 0}, MAXIMUMS = {2, 2, 3, 3, 3, 1, 1};
     private boolean pendingLockSettings;
     private static final int CONFIRM_LAUNCH = 21, CONFIRM_LOCK_SETTINGS = 22;
     private boolean welcome;
@@ -56,7 +61,8 @@ public class HomeActivity extends Activity {
         public void run() {
             if (clock != null && date != null) {
                 Date now = new Date();
-                clock.setText(android.text.format.DateFormat.getTimeFormat(HomeActivity.this).format(now));
+                String time = android.text.format.DateFormat.getTimeFormat(HomeActivity.this).format(now);
+                clock.setText(time); clock.setContentDescription(time + ", open Clock");
                 date.setText(android.text.format.DateFormat.format("EEEE, MMMM d", now).toString().toUpperCase(Locale.getDefault()));
             }
             handler.postDelayed(this, 15000);
@@ -64,12 +70,16 @@ public class HomeActivity extends Activity {
     };
 
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
-        paper = 0xffffffff;
-        ink = 0xff202124;
-        moss = 0xff52565b;
-        dividerColor = 0xffe1e4e7;
         prefs = getSharedPreferences("still", MODE_PRIVATE);
+        boolean black = prefs.getInt("theme", 0) == 1;
+        if (black) setTheme(getResources().getIdentifier("StillBlackTheme", "style", getPackageName()));
+        super.onCreate(state);
+        paper = black ? 0xff000000 : 0xffffffff;
+        ink = black ? 0xfff3f5fa : 0xff202124;
+        moss = black ? 0xffacb5c8 : 0xff545e74;
+        dividerColor = black ? 0xff242833 : 0xffe1e4e7;
+        accent = black ? 0xffa0adff : PRIMARY;
+        surface = black ? 0xff151821 : 0xfff3f5fa;
         host = new AppWidgetHost(this, 101);
         widgets = AppWidgetManager.getInstance(this);
         if (state != null) {
@@ -82,7 +92,7 @@ public class HomeActivity extends Activity {
         }
         getWindow().setStatusBarColor(paper);
         getWindow().setNavigationBarColor(paper);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        getWindow().getDecorView().setSystemUiVisibility(black ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         if (prefs.getBoolean("welcome", false)) home(state == null ? 0 : state.getInt("scroll")); else welcome();
     }
     @Override protected void onSaveInstanceState(Bundle state) {
@@ -100,7 +110,7 @@ public class HomeActivity extends Activity {
     @Override protected void onResume() { super.onResume(); if (!welcome && scroll != null && reloadApps()) refresh(); }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); if (!welcome && scroll != null) { clearSearch(); scroll.post(() -> scroll.scrollTo(0, 0)); } }
 
-    @Override protected void onDestroy() { handler.removeCallbacks(expireUndo); super.onDestroy(); }
+    @Override protected void onDestroy() { handler.removeCallbacks(expireUndo); handler.removeCallbacks(hideLetter); super.onDestroy(); }
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
     private LinearLayout column() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); return v; }
     private TextView text(String value, int size, int color) {
@@ -112,20 +122,43 @@ public class HomeActivity extends Activity {
         getTheme().resolveAttribute(android.R.attr.selectableItemBackground, attr, true);
         v.setBackgroundResource(attr.resourceId); v.setFocusable(true); v.setOnClickListener(x -> call.run()); return v;
     }
+    private GradientDrawable rounded(int color, int radius) {
+        GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(radius)); return shape;
+    }
     private void base() {
-        root = column(); root.setFocusableInTouchMode(true); root.setBackgroundColor(paper); root.setPadding(dp(22), dp(10), dp(16), 0); setContentView(root);
+        root = column(); root.setFocusableInTouchMode(true); root.setBackgroundColor(paper); root.setPadding(dp(18), dp(14), dp(18), 0); setContentView(root);
+    }
+    private FrameLayout heroFrame() {
+        FrameLayout frame = new FrameLayout(this) {
+            private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            @Override protected void onDraw(android.graphics.Canvas canvas) {
+                super.onDraw(canvas);
+                paint.setStyle(android.graphics.Paint.Style.FILL); paint.setColor(0xff362969);
+                canvas.drawCircle(getWidth() * .93f, getHeight() * .24f, dp(65), paint);
+                paint.setStyle(android.graphics.Paint.Style.STROKE); paint.setStrokeWidth(dp(1)); paint.setColor(0xff685a9b);
+                for (int r = 38; r <= 110; r += 14) canvas.drawCircle(getWidth() * .93f, getHeight() * .24f, dp(r), paint);
+            }
+        };
+        frame.setBackground(rounded(0xff20194b, 26)); frame.setClipToOutline(true);
+        frame.setWillNotDraw(false);
+        return frame;
     }
     private void welcome() {
         welcome = true; base(); root.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(text("✳   WELCOME TO STILL", 15, moss));
-        TextView title = text("Make room\nfor less.", 53, ink); title.setTypeface(null, Typeface.BOLD); root.addView(title);
+        FrameLayout cover = heroFrame();
+        LinearLayout headline = column(); headline.setPadding(dp(22), dp(24), dp(22), dp(20)); cover.addView(headline);
+        TextView wordmark = text("STILL  /  INDEX", 12, 0xffd9dcff); wordmark.setLetterSpacing(.19f); headline.addView(wordmark);
+        TextView title = text("Make room\nfor less.", 46, 0xffffffff);
+        title.setLetterSpacing(-.045f); title.setTypeface(null, Typeface.BOLD);
+        title.setPadding(0, dp(30), 0, 0); headline.addView(title);
+        root.addView(cover, new LinearLayout.LayoutParams(-1, -2));
         TextView detail = text("Every app, one screen.\n\nSearch or scroll the alphabetical list. Hold an empty area for widgets and launcher settings.", 17, moss);
         detail.setPadding(0, dp(14), dp(8), dp(20)); root.addView(detail);
         Button open = new Button(this);
         open.setText("Open launcher"); open.setAllCaps(false);
-        open.setTextColor(paper); open.setTextSize(16);
+        open.setTextColor(0xffffffff); open.setTextSize(16);
         open.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        GradientDrawable fill = new GradientDrawable(); fill.setColor(ink); fill.setCornerRadius(dp(12));
+        GradientDrawable fill = rounded(PRIMARY, 16);
         open.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x40ffffff), fill, null));
         open.setMinHeight(dp(52)); open.setPadding(dp(18), dp(8), dp(18), dp(8));
         open.setOnClickListener(v -> { prefs.edit().putBoolean("welcome", true).apply(); home(0); });
@@ -133,15 +166,25 @@ public class HomeActivity extends Activity {
     }
     private void home(int y) {
         welcome = false; base();
-        date = text("", 12, moss); date.setLetterSpacing(.12f); root.addView(date);
-        clock = text("", 60, ink); clock.setTypeface(null, Typeface.BOLD); root.addView(clock);
+        FrameLayout hero = heroFrame();
+        LinearLayout face = column(); face.setPadding(dp(18), dp(13), dp(18), dp(9)); hero.addView(face);
+        date = text("", 11, 0xffe0e2ff); date.setLetterSpacing(.15f); face.addView(date);
+        clock = text("", 56, 0xffffffff); clock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        clock.setLetterSpacing(-.06f); clock.setSingleLine(true);
+        clock.setAutoSizeTextTypeUniformWithConfiguration(26, 56, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        clock.setFocusable(true); clock.setOnClickListener(v -> openClock());
+        face.addView(clock, new LinearLayout.LayoutParams(-1, dp(74)));
+        root.addView(hero, new LinearLayout.LayoutParams(-1, -2));
         handler.removeCallbacks(tick); handler.post(tick);
         LinearLayout bar = new LinearLayout(this);
         TextView title = text("ALL APPS", 12, moss); title.setGravity(Gravity.CENTER_VERTICAL); title.setLetterSpacing(.13f);
         bar.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1));
         RoleManager role = android.os.Build.VERSION.SDK_INT >= 29 ? getSystemService(RoleManager.class) : null;
         if (role == null || !role.isRoleHeld(RoleManager.ROLE_HOME)) bar.addView(action("Set as Home", this::setHome));
-        TextView chats = action("Chats", this::showChats); chats.setPadding(dp(10), 0, dp(10), 0); bar.addView(chats);
+        TextView chats = action("Chats", this::showChats); chats.setTextColor(accent);
+        chats.setPadding(dp(14), 0, dp(14), 0);
+        chats.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x203448ce), rounded(surface, 24), null));
+        bar.addView(chats);
         root.addView(bar);
         LinearLayout searchBar = new LinearLayout(this);
         search = new EditText(this);
@@ -150,7 +193,8 @@ public class HomeActivity extends Activity {
         search.setTextSize(15);
         search.setTextColor(ink);
         search.setHintTextColor(moss);
-        search.setBackgroundTintList(ColorStateList.valueOf(moss));
+        search.setBackground(rounded(surface, 16));
+        search.setPadding(dp(16), 0, dp(12), 0);
         search.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         search.setText(query);
         searchBar.addView(search, new LinearLayout.LayoutParams(0, dp(46), 1));
@@ -174,7 +218,7 @@ public class HomeActivity extends Activity {
             showLauncherOptions(); return true;
         });
         emptyArea(empty);
-        root.addView(empty, new LinearLayout.LayoutParams(-1, dp(32)));
+        root.addView(empty, new LinearLayout.LayoutParams(-1, dp(24)));
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence old, int start, int count, int after) {}
             public void onTextChanged(CharSequence value, int start, int before, int count) {
@@ -198,18 +242,46 @@ public class HomeActivity extends Activity {
             }
             dismissKeyboard(); return true;
         });
-        appArea = new LinearLayout(this); appArea.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); root.addView(appArea, new LinearLayout.LayoutParams(-1, 0, 1));
+        FrameLayout appFrame = new FrameLayout(this); root.addView(appFrame, new LinearLayout.LayoutParams(-1, 0, 1));
+        appArea = new LinearLayout(this); appArea.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); appFrame.addView(appArea, new FrameLayout.LayoutParams(-1, -1));
+        letterBubble = text("", 30, 0xffffffff); letterBubble.setGravity(Gravity.CENTER);
+        letterBubble.setBackground(rounded(PRIMARY, 23)); letterBubble.setVisibility(View.GONE);
+        letterBubble.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        appFrame.addView(letterBubble, new FrameLayout.LayoutParams(dp(68), dp(68), Gravity.CENTER));
         scroll = new ScrollView(this); list = column(); scroll.addView(list); list.setLayoutDirection(getResources().getConfiguration().getLayoutDirection());
         appArea.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
-        indexScroll = new ScrollView(this); indexScroll.setVerticalScrollBarEnabled(false); index = column(); indexScroll.addView(index); appArea.addView(indexScroll, new LinearLayout.LayoutParams(dp(40), -1));
+        indexScroll = new AlphabetRail(); index = indexScroll;
+        indexScroll.setBackground(rounded(surface, 18));
+        appArea.addView(indexScroll, new LinearLayout.LayoutParams(dp(40), -1));
         placeRail();
         undoBar = new LinearLayout(this); undoBar.setVisibility(View.GONE); root.addView(undoBar);
         dismissUndo();
-        emptyArea(root); emptyArea(list); emptyArea(date); emptyArea(clock); emptyArea(title);
+        emptyArea(root); emptyArea(list); emptyArea(date); emptyArea(title);
         root.requestFocus();
         reloadApps();
         populate(y);
     }
+    private void openClock() {
+        Intent alarms = new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS);
+        ResolveInfo target = getPackageManager().resolveActivity(alarms, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+        List<ResolveInfo> handlers = getPackageManager().queryIntentActivities(alarms, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+        if (!handlers.isEmpty()) {
+            ResolveInfo chosen = handlers.get(0);
+            if (target != null && target.activityInfo != null) for (ResolveInfo handler : handlers) {
+                if (component(target).equals(component(handler))) { chosen = handler; break; }
+            }
+            String packageName = chosen.activityInfo.packageName;
+            if (saved("locked").contains(packageName)) {
+                for (ResolveInfo app : apps) if (packageName.equals(app.activityInfo.packageName)) { openApp(app); return; }
+                Toast.makeText(this, "Clock is locked", Toast.LENGTH_SHORT).show(); return;
+            }
+            try { startActivity(alarms.setComponent(component(chosen))); return; }
+            catch (ActivityNotFoundException | SecurityException ignored) { }
+        }
+        for (ResolveInfo app : apps) if ("Clock".equalsIgnoreCase(label(app))) { openApp(app); return; }
+        Toast.makeText(this, "No Clock app available", Toast.LENGTH_SHORT).show();
+    }
+
     private void dismissKeyboard() {
         getSystemService(InputMethodManager.class).hideSoftInputFromWindow(search.getWindowToken(), 0);
         root.requestFocus();
@@ -287,6 +359,7 @@ public class HomeActivity extends Activity {
         refresh();
     }
     private void populate(int y) {
+        handler.removeCallbacks(hideLetter); showLetter(null);
         list.removeAllViews(); index.removeAllViews();
         Set<String> hidden = saved("hidden"), favorites = saved("favorites");
         lockedApps = saved("locked");
@@ -386,8 +459,55 @@ public class HomeActivity extends Activity {
         showMenu("Widgets", labels, actions);
     }
     private void showSettings() {
-        showMenu("Launcher settings", Arrays.asList("Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Set as Home"), Arrays.asList(
-            this::showIconSettings, this::showFontSettings, this::showListSettings, this::showPrivacySettings, this::backupMenu, this::setHome));
+        showSettingsPage("Launcher settings", "Make Still yours", new String[]{"Theme", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Set as Home"},
+            new String[]{prefs.getInt("theme", 0) == 1 ? "Black palette" : "White palette", "Style, size and shape", "Typeface and text size", "Favorites and alphabet placement", "Hidden apps and App Lock", "Move your settings to another device", "Choose your default launcher"},
+            new String[]{"◐", "▦", "Aa", "A–Z", "◇", "⇅", "⌂"}, Arrays.asList(this::showThemeSettings, this::showIconSettings, this::showFontSettings,
+                this::showListSettings, this::showPrivacySettings, this::backupMenu, this::setHome), null);
+    }
+    private void showSettingsPage(String title, String subtitle, String[] labels, String[] details, String[] glyphs, List<Runnable> actions, Runnable back) {
+        Dialog page = new Dialog(this);
+        page.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout content = column(); content.setBackgroundColor(paper); content.setPadding(dp(18), dp(10), dp(18), dp(8));
+        TextView close = action(back == null ? "Close settings" : "‹  Settings", () -> { page.dismiss(); if (back != null) back.run(); });
+        close.setTextColor(accent); content.addView(close);
+        FrameLayout banner = heroFrame(); LinearLayout heading = column(); heading.setPadding(dp(18), dp(12), dp(18), dp(14));
+        TextView kicker = text("STILL STUDIO", 10, 0xffd9dcff); kicker.setLetterSpacing(.2f); heading.addView(kicker);
+        TextView name = text(title, 28, 0xffffffff); name.setTypeface(null, Typeface.BOLD); heading.addView(name);
+        heading.addView(text(subtitle, 13, 0xffe0e2ff)); banner.addView(heading); content.addView(banner, new LinearLayout.LayoutParams(-1, -2));
+        ScrollView scroll = new ScrollView(this); scroll.setClipToPadding(false); scroll.setPadding(0, dp(12), 0, dp(8));
+        LinearLayout cards = column(); scroll.addView(cards); content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        for (int i = 0; i < labels.length; i++) {
+            Runnable select = actions.get(i);
+            LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(dp(12), dp(9), dp(12), dp(9));
+            row.setMinimumHeight(dp(58)); row.setFocusable(true);
+            row.setContentDescription(details[i].isEmpty() ? labels[i] : labels[i] + ", " + details[i]);
+            row.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x284c42ca), rounded(surface, 16), null));
+            row.setOnClickListener(v -> { page.dismiss(); select.run(); });
+            TextView icon = text(glyphs[i], 15, accent); icon.setGravity(Gravity.CENTER); icon.setBackground(rounded(dividerColor, 12));
+            row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
+            LinearLayout description = column(); description.setPadding(dp(12), 0, dp(8), 0);
+            TextView label = text(labels[i], 15, ink); label.setTypeface(null, Typeface.BOLD); description.addView(label);
+            if (!details[i].isEmpty()) description.addView(text(details[i], 12, moss));
+            row.addView(description, new LinearLayout.LayoutParams(0, -2, 1));
+            row.addView(text("›", 20, accent));
+            for (int child = 0; child < row.getChildCount(); child++) row.getChildAt(child).setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.bottomMargin = dp(7); cards.addView(row, spacing);
+        }
+        page.setContentView(content); page.show();
+        Window window = page.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(paper)); window.setLayout(-1, -1);
+            window.setStatusBarColor(paper); window.setNavigationBarColor(paper);
+            window.getDecorView().setSystemUiVisibility(prefs.getInt("theme", 0) == 1 ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        }
+    }
+    private void showThemeSettings() {
+        new AlertDialog.Builder(this).setTitle("Theme").setSingleChoiceItems(new String[]{"White", "Black"}, prefs.getInt("theme", 0), (dialog, selection) -> {
+            dialog.dismiss();
+            if (selection != prefs.getInt("theme", 0)) {
+                prefs.edit().putInt("theme", selection).apply(); recreate();
+            } else showSettings();
+        }).setNegativeButton("Back", (d,w) -> showSettings()).show();
     }
     private void showIconSettings() {
         showSettingsGroup("Icons", Arrays.asList("Icon style", "Icon size", "Icon shape"), Arrays.asList(
@@ -408,8 +528,9 @@ public class HomeActivity extends Activity {
         showSettingsGroup("Privacy", Arrays.asList("Hidden apps", "App lock"), Arrays.asList(this::showHiddenApps, this::requestLockSettings));
     }
     private void showSettingsGroup(String title, List<String> labels, List<Runnable> actions) {
-        new AlertDialog.Builder(this).setTitle(title).setItems(labels.toArray(new String[0]), (d,i) -> actions.get(i).run())
-            .setNegativeButton("Back", (d,w) -> showSettings()).show();
+        String[] descriptions = new String[labels.size()], glyphs = new String[labels.size()];
+        Arrays.fill(descriptions, ""); Arrays.fill(glyphs, "·");
+        showSettingsPage(title, "Customize your launcher", labels.toArray(new String[0]), descriptions, glyphs, actions, this::showSettings);
     }
     private void setting(String title, String key, String[] values, int fallback, Runnable parent) {
         new AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(values, prefs.getInt(key, fallback), (d,i) -> {
@@ -605,18 +726,83 @@ public class HomeActivity extends Activity {
                 prefs.edit().putInt("widgetHeight:" + id, min + height.getProgress()).apply(); refresh();
             }).show();
     }
+    private final class AlphabetRail extends LinearLayout {
+        private int pointer = -1;
+        AlphabetRail() { super(HomeActivity.this); setOrientation(VERTICAL); }
+        @Override public boolean onInterceptTouchEvent(android.view.MotionEvent event) {
+            android.view.accessibility.AccessibilityManager accessibility = getSystemService(android.view.accessibility.AccessibilityManager.class);
+            return !accessibility.isTouchExplorationEnabled() && getChildCount() > 0;
+        }
+        @Override public boolean onTouchEvent(android.view.MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    pointer = event.getPointerId(0); scrub(event.getY()); return true;
+                case MotionEvent.ACTION_MOVE:
+                    int i = event.findPointerIndex(pointer);
+                    if (i >= 0) scrub(event.getY(i));
+                    return true;
+                case MotionEvent.ACTION_POINTER_UP:
+                    if (event.getPointerId(event.getActionIndex()) != pointer) return true;
+                    // The controlling finger lifted; keep the last selection.
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    pointer = -1; handler.removeCallbacks(hideLetter); handler.postDelayed(hideLetter, 180); return true;
+                default: return true;
+            }
+        }
+        private void scrub(float y) {
+            if (pointer == -1 || getChildCount() == 0) return;
+            int row = 0;
+            while (row < getChildCount() - 1 && y >= getChildAt(row).getBottom()) row++;
+            TextView letter = (TextView)getChildAt(row);
+            if (letter != selectedLetter) jumpToLetter(letter, false);
+        }
+    }
+    private void jumpToLetter(TextView letter, boolean smooth) {
+        View heading = (View)letter.getTag();
+        if (smooth && android.animation.ValueAnimator.areAnimatorsEnabled()) scroll.smoothScrollTo(0, heading.getTop());
+        else scroll.scrollTo(0, heading.getTop());
+        handler.removeCallbacks(hideLetter);
+        showLetter(letter);
+        if (smooth) handler.postDelayed(hideLetter, 420);
+    }
+    private void showLetter(TextView letter) {
+        if (letterBubble == null) return;
+        if (selectedLetter != null) selectedLetter.setSelected(false);
+        selectedLetter = letter;
+        letterBubble.animate().cancel();
+        boolean animate = android.animation.ValueAnimator.areAnimatorsEnabled();
+        if (letter == null) {
+            if (letterBubble.getVisibility() != View.VISIBLE) return;
+            if (animate) letterBubble.animate().alpha(0).setDuration(120).withEndAction(() -> letterBubble.setVisibility(View.GONE)).start();
+            else letterBubble.setVisibility(View.GONE);
+            return;
+        }
+        letter.setSelected(true);
+        letterBubble.setText(letter.getText()); letterBubble.setVisibility(View.VISIBLE);
+        letterBubble.setAlpha(1);
+        letterBubble.setScaleX(animate ? .86f : 1); letterBubble.setScaleY(animate ? .86f : 1);
+        if (animate) letterBubble.animate().scaleX(1).scaleY(1).setDuration(130).start();
+    }
     private void section(String name, String shortcut, String description) {
-        TextView title = text(name, 13, moss); title.setPadding(0, dp(11), 0, dp(4)); list.addView(title); emptyArea(title);
+        TextView title = text(name, 12, accent); title.setLetterSpacing(.12f); title.setTypeface(null, Typeface.BOLD); title.setPadding(0, dp(13), 0, dp(5)); list.addView(title); emptyArea(title);
         if (shortcut != null) {
-            TextView jump = action(shortcut, () -> scroll.smoothScrollTo(0, title.getTop()));
-            jump.setGravity(Gravity.CENTER); jump.setMinHeight(dp(29)); jump.setTextSize(13); jump.setContentDescription("Jump to " + description); index.addView(jump);
+            TextView jump = action(shortcut, () -> {});
+            jump.setTag(title); jump.setOnClickListener(v -> jumpToLetter(jump, true));
+            jump.setGravity(Gravity.CENTER); jump.setMinHeight(0); jump.setIncludeFontPadding(false); jump.setTextSize(12);
+            jump.setAutoSizeTextTypeUniformWithConfiguration(8, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+            jump.setTextColor(new ColorStateList(new int[][]{new int[]{android.R.attr.state_selected}, new int[]{}}, new int[]{0xffffffff, moss}));
+            android.graphics.drawable.StateListDrawable state = new android.graphics.drawable.StateListDrawable();
+            state.addState(new int[]{android.R.attr.state_selected}, rounded(PRIMARY, 12));
+            state.addState(new int[]{}, new ColorDrawable(android.graphics.Color.TRANSPARENT)); jump.setBackground(state);
+            jump.setContentDescription("Jump to " + description); index.addView(jump, new LinearLayout.LayoutParams(-1, 0, 1));
         }
     }
     private void row(ResolveInfo app, boolean favorite, boolean inFavorites) {
         LinearLayout line = new LinearLayout(this); line.setGravity(Gravity.CENTER_VERTICAL);
         int iconSize = new int[]{20, 26, 36}[prefs.getInt("iconSize", 1)];
         int fontSize = new int[]{13, 15, 18, 21}[prefs.getInt("fontSize", 1)];
-        int height = Math.max(46, iconSize + 14);
+        int height = Math.max(48, iconSize + 14);
         boolean locked = lockedApps.contains(app.activityInfo.packageName);
         LinearLayout launchRow = new LinearLayout(this); launchRow.setGravity(Gravity.CENTER_VERTICAL);
         launchRow.setContentDescription(label(app) + (locked ? ", locked" : ""));
@@ -651,9 +837,8 @@ public class HomeActivity extends Activity {
                 store("favorites", members); saveOrder("favorites", updated); refresh();
             });
         });
-        star.setGravity(Gravity.CENTER); star.setContentDescription((favorite ? "Unfavorite " : "Favorite ") + label(app)); line.addView(star, new LinearLayout.LayoutParams(dp(44), dp(height)));
+        star.setGravity(Gravity.CENTER); if (favorite) star.setTextColor(accent); star.setContentDescription((favorite ? "Unfavorite " : "Favorite ") + label(app)); line.addView(star, new LinearLayout.LayoutParams(dp(44), dp(height)));
         list.addView(line);
-        View divider = new View(this); divider.setBackgroundColor(dividerColor); list.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
     }
     private View appIcon(ResolveInfo app, int size) {
         int style = prefs.getInt("iconStyle", 0), shape = prefs.getInt("iconShape", 0);
@@ -899,7 +1084,7 @@ public class HomeActivity extends Activity {
         JSONObject looks = backup.getJSONObject("appearance");
         int[] values = new int[APPEARANCE.length];
         for (int i = 0; i < APPEARANCE.length; i++) {
-            Object value = looks.get(APPEARANCE[i]);
+            Object value = "theme".equals(APPEARANCE[i]) && !looks.has("theme") ? prefs.getInt("theme", 0) : looks.get(APPEARANCE[i]);
             if (!(value instanceof Integer) || (int)value < 0 || (int)value > MAXIMUMS[i]) throw new JSONException("Invalid appearance value");
             values[i] = (int)value;
         }
@@ -909,7 +1094,9 @@ public class HomeActivity extends Activity {
                 android.content.SharedPreferences.Editor edit = prefs.edit().putStringSet("favorites", new HashSet<>(favorites))
                     .putString("favoritesOrder", String.join("\n", favorites)).putStringSet("hidden", new HashSet<>(hidden));
                 for (int i = 0; i < APPEARANCE.length; i++) edit.putInt(APPEARANCE[i], values[i]);
-                edit.apply(); dismissUndo(); placeRail(); refresh();
+                boolean themeChanged = prefs.getInt("theme", 0) != values[values.length - 1];
+                edit.apply(); dismissUndo();
+                if (themeChanged) recreate(); else { placeRail(); refresh(); }
             }).show();
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
