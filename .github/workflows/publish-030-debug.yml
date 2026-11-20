@@ -1,0 +1,27 @@
+name: Publish Still 0.3.0 debug APK
+on:
+  push:
+    branches: ['arena/1a4fc720-android-launcher']
+    paths: ['.github/workflows/publish-030-debug.yml']
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d07da1493e4c88e8620a82fb10aa816a44832743
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build, verify, and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          apk=Still-v0.3.0-debug.apk
+          android/scripts/package-apk.sh "$apk"
+          gh release create v0.3.0 "$apk" --target "$(git rev-parse HEAD)" --title 'Still v0.3.0 (Debug APK)' --notes 'Final v0.3.0 feature release, distributed as a development-signed APK for Android 8.0+. Includes the optional unified Chats inbox, conversation threads, and app-specific reply and open actions. Chats uses active notifications and does not import chat history. This APK uses a different signing key from earlier previews. Export settings before uninstalling the previous build; widget bindings and App Lock do not carry over.'
