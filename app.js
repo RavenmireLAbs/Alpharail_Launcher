@@ -30,6 +30,9 @@ let favorites = read('favorites', ['Camera', 'Maps', 'Messages']);
 let widgets = read('widgets', []), hidden = read('hidden', []), heights = read('widget-heights', {});
 let appearance = read('appearance', {}), locked = read('locked', []);
 let collections = read('collections', []), stacked = read('stacked-widgets', false), stackWidget = read('stack-widget', null);
+let demoWallpaper = read('demo-wallpaper', true), demoWallpaperName = read('demo-wallpaper-name', 'android');
+const abstractWallpapers = ['Porcelain', 'Fold', 'Pearl', 'Glacier', 'Linen', 'Eclipse', 'Fault', 'Obsidian', 'Ink', 'Orbit', 'Obsidian Amethyst', 'Obsidian Copper', 'Ink Aurora', 'Ink Ember', 'Cloud Sect', 'Moonblade', 'Bamboo Vigil', 'Jade Dragon', 'Crimson Pass', 'Lotus Domain', 'Snow Monastery', 'Astral Stair', 'Lantern River', 'Phoenix Peak'];
+const wallpaperAsset = name => `android/app/src/main/res/drawable-nodpi/wall_${name.toLowerCase().replaceAll(' ', '_')}.jpg`;
 let timer, beforeSearch = 0, filtering = false;
 const filterKey = value => value.trim().toLowerCase().normalize('NFD').replace(/\p{M}+/gu, '');
 function searchResults(entries, query) {
@@ -168,6 +171,7 @@ function widgetSettings() {
   ...widgets.map(name => [`Manage ${name}`, () => widgetMenu(name)])]);
 }
 function previewTheme() {
+  if (demoWallpaper) return;
   let selected = appearance.theme ?? 0;
   const controls = document.createElement('div'); controls.className = 'theme-controls';
   const mock = document.createElement('div'); mock.className = 'theme-sample';
@@ -183,7 +187,7 @@ function previewTheme() {
   menu('Preview theme', [['Apply', () => { appearance.theme = selected; update(); }], ['Cancel', () => {}]], controls);
 }
 const settingCards = {
-  Theme: ['◐', () => appearance.theme === 1 ? 'Black palette' : 'White palette'],
+  Theme: ['◐', () => demoWallpaper ? 'Unavailable while wallpaper is on' : appearance.theme === 1 ? 'Black palette' : 'White palette'],
   Icons: ['▦', 'Style, size and shape'], Fonts: ['Aa', 'Typeface and text size'],
   'App list': ['A–Z', 'Favorites and alphabet placement'], Privacy: ['◇', 'Hidden apps and App Lock'],
   'Backup and restore': ['⇅', 'Move your settings to another device'], Back: ['‹', 'Launcher settings'],
@@ -195,6 +199,7 @@ function settingsPage(title, entries, subtitle) {
   $('menu-title').after(intro);
   for (const node of $('menu-items').querySelectorAll('button')) {
     const label = node.textContent, [mark, detail] = settingCards[label] ?? ['·', ''];
+    if (label === 'Theme' && demoWallpaper) node.disabled = true;
     const icon = document.createElement('span'); icon.className = 'settings-glyph'; icon.textContent = mark; icon.setAttribute('aria-hidden', 'true');
     const copy = document.createElement('span'); copy.className = 'settings-copy';
     const name = document.createElement('strong'); name.textContent = label; copy.append(name);
@@ -206,12 +211,36 @@ function settingsPage(title, entries, subtitle) {
 function launcherSettings() {
   settingsPage('Launcher settings', [
     ['Theme', previewTheme],
+    ['Home wallpaper', wallpaperMenu],
     ['Icons', iconSettings],
     ['Fonts', fontSettings],
     ['App list', listSettings],
     ['Privacy', privacySettings],
     ['Backup and restore', backupMenu],
   ], 'Make Alpharail yours');
+}
+function chooseWallpaper(name) {
+  demoWallpaper = name !== 'none'; demoWallpaperName = name;
+  storePreview('demo-wallpaper', demoWallpaper); storePreview('demo-wallpaper-name', name); update();
+}
+function wallpaperMenu() {
+  menu('Home wallpaper', [['No wallpaper', () => chooseWallpaper('none')], ['Android wallpaper (sample)', () => chooseWallpaper('android')],
+    ['Abstract', abstractMenu], ['Wuxia & Xianxia', () => wallpaperGallery(14)]]);
+}
+function abstractMenu() {
+  menu('Abstract wallpapers', [['Light abstract wallpapers', () => wallpaperGallery(0)], ['Dark abstract wallpapers', () => wallpaperGallery(5)], ['Back', wallpaperMenu]]);
+}
+function wallpaperGallery(start) {
+  const gallery = document.createElement('div'); gallery.className = 'wallpaper-gallery';
+  for (const name of abstractWallpapers.slice(start, start === 0 ? 5 : start === 5 ? 14 : undefined)) {
+    const tile = button(name, () => {
+      const image = document.createElement('img'); image.src = wallpaperAsset(name); image.alt = `${name} wallpaper`; image.className = 'wallpaper-detail';
+      menu(name, [['Apply', () => chooseWallpaper(name)], ['Back', () => wallpaperGallery(start)]], image);
+    });
+    const image = document.createElement('img'); image.src = wallpaperAsset(name); image.alt = '';
+    tile.prepend(image); gallery.append(tile);
+  }
+  menu(start === 0 ? 'Light abstract wallpapers' : start === 5 ? 'Dark abstract wallpapers' : 'Wuxia & Xianxia', [['Back', start < 14 ? abstractMenu : wallpaperMenu]], gallery);
 }
 function settingsGroup(title, entries) { settingsPage(title, [...entries, ['Back', launcherSettings]], 'Customize your launcher'); }
 function iconSettings() {
@@ -440,6 +469,11 @@ function hint(value) {
   return note;
 }
 function render(y) {
+  $('launcher').dataset.wallpaper = demoWallpaper ? 'on' : 'off';
+  const screen = document.querySelector('.screen');
+  const index = abstractWallpapers.indexOf(demoWallpaperName);
+  screen.dataset.wallpaperName = demoWallpaper && index >= 0 ? demoWallpaperName.toLowerCase().replaceAll(' ', '_') : '';
+  screen.dataset.wallpaperLight = demoWallpaper && index >= 0 && index < 5 ? 'yes' : 'no';
   const launcher = $('launcher');
   document.querySelector('.stage').dataset.theme = appearance.theme === 1 ? 'black' : 'white';
   launcher.dataset.railSide = appearance.railSide === 1 ? 'left' : 'right';
