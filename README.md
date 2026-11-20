@@ -24,7 +24,7 @@ Open **Chats → Enable Chats**, then grant **Alpharail Chats** notification acc
 
 Use **App: All** to filter the active inbox by messaging app. Each row shows the source app icon. If previews are enabled and the source supplies a compatible sender picture, Alpharail displays it too. Open a thread to pin it when Android provides a stable conversation ID; pinned threads move to the top when active. Pins stay local and can be cleared in **Chat settings**.
 
-Previews are off by default. Hidden and App Locked apps are excluded. **Reply** and **Open conversation** only appear when a compatible notification action is available; **Open app** is separate. Use **Chat settings** to filter messaging apps or turn Chats off. You can revoke notification access in Android settings.
+Previews are off by default. Hidden and App Locked apps are excluded. **Reply** and **Open conversation** only appear when a compatible notification action is available; **Open app** is separate. Use **Chat settings** to filter messaging apps or turn Chats off. You can revoke notification access in Android settings. **Chat settings → Screenshot protection** controls whether Android blocks screenshots and screen recordings of Chats. Protection is on by default.
 
 ### Updates
 
