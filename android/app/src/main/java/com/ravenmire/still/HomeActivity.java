@@ -44,6 +44,13 @@ public class HomeActivity extends Activity {
     private LinearLayout root, list, index;
     private AppWidgetHost host;
     private AppWidgetManager widgets;
+    private final Set<AlertDialog> privateChatDialogs = new HashSet<>();
+    private void showPrivateChatDialog(AlertDialog dialog) {
+        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        privateChatDialogs.add(dialog);
+        dialog.setOnDismissListener(ignored -> privateChatDialogs.remove(dialog));
+        dialog.show();
+    }
     private int pending = -1, pendingRecovery = -1;
     private String pendingLaunch, pendingShortcut;
     private LinearLayout undoBar, appArea;
@@ -109,7 +116,9 @@ public class HomeActivity extends Activity {
         state.putInt("scroll", scroll == null ? 0 : scroll.getScrollY());
     }
     @Override protected void onStart() { super.onStart(); host.startListening(); handler.post(tick); }
-    @Override protected void onStop() { handler.removeCallbacks(tick); host.stopListening(); super.onStop(); }
+    @Override protected void onStop() { handler.removeCallbacks(tick);
+        for (AlertDialog dialog : new ArrayList<>(privateChatDialogs)) dialog.dismiss();
+        privateChatDialogs.clear(); host.stopListening(); super.onStop(); }
     @Override protected void onResume() { super.onResume(); if (!welcome && scroll != null && reloadApps()) refresh(); }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); if (!welcome && scroll != null) { clearSearch(); scroll.post(() -> scroll.scrollTo(0, 0)); } }
 
@@ -801,7 +810,7 @@ public class HomeActivity extends Activity {
     private void openApp(ResolveInfo app) { openApp(app, null); }
     private void openApp(ResolveInfo app, String shortcut) {
         dismissKeyboard();
-        if (!lockedApps.contains(app.activityInfo.packageName)) { launchTarget(component(app), shortcut); return; }
+        if (!saved("locked").contains(app.activityInfo.packageName)) { launchTarget(component(app), shortcut); return; }
         if (pendingLaunch != null || pendingLockSettings) return;
         pendingLaunch = key(app); pendingShortcut = shortcut;
         if (!requestCredential(CONFIRM_LAUNCH, "Unlock " + label(app))) { pendingLaunch = null; pendingShortcut = null; }
@@ -1205,8 +1214,7 @@ public class HomeActivity extends Activity {
         Runnable redraw = () -> fillChats(rows);
         buttons.addView(action("Refresh", redraw), new LinearLayout.LayoutParams(0, dp(44), 1));
         buttons.addView(action("Chat settings", () -> { panel.dismiss(); showChatSettings(); }), new LinearLayout.LayoutParams(0, dp(44), 1));
-        panel.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        panel.show(); panel.getWindow().setLayout(-1, Math.min(dp(640), Math.round(getResources().getDisplayMetrics().heightPixels * .86f)));
+        showPrivateChatDialog(panel); panel.getWindow().setLayout(-1, Math.min(dp(640), Math.round(getResources().getDisplayMetrics().heightPixels * .86f)));
         redraw.run();
     }
     private void fillChats(LinearLayout rows) {
@@ -1275,11 +1283,11 @@ public class HomeActivity extends Activity {
         if (seen.isEmpty()) messages.addView(text("Message text is hidden or unavailable. You can change previews in Chat settings.", 15, moss));
         AlertDialog detail = new AlertDialog.Builder(this).setTitle(chatTitle(latest, previews)).setView(content).setNegativeButton("Back", null).create();
         content.addView(action("Open " + chatAppName(pkg), () -> openChatApp(pkg)));
-        if (chatContentIntent(latest) != null) content.addView(action("Open conversation", () -> openChat(latest.getKey(), pkg)));
+        if (chatContentIntent(latest) != null) content.addView(action("Open conversation", () -> openChat(latest.getKey(), id, pkg)));
         for (StatusBarNotification item : thread) if (ChatNotifications.replyAction(item) != null) {
             content.addView(action("Reply via " + chatAppName(pkg), () -> showChatReply(item))); break;
         }
-        detail.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE); detail.show();
+        showPrivateChatDialog(detail);
     }
     private void addThreadMessage(LinearLayout rows, Set<String> seen, CharSequence body, long time) {
         if (body == null || body.length() == 0 || seen.size() >= 50) return;
@@ -1296,7 +1304,7 @@ public class HomeActivity extends Activity {
             .setNegativeButton("Cancel", null).setPositiveButton("Send", (d,w) -> {
                 String message = reply.getText().toString().trim(); if (!message.isEmpty()) performChatAction(item.getKey(), ChatNotifications.conversationKey(item), message);
             }).create();
-        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE); dialog.show();
+        showPrivateChatDialog(dialog);
     }
     private PendingIntent chatContentIntent(StatusBarNotification item) {
         PendingIntent open = item.getNotification().contentIntent;
@@ -1314,10 +1322,10 @@ public class HomeActivity extends Activity {
         } catch (ActivityNotFoundException | SecurityException ignored) { }
         Toast.makeText(this, "Could not open " + chatAppName(packageName), Toast.LENGTH_SHORT).show();
     }
-    private void openChat(String key, String packageName) {
+    private void openChat(String key, String conversation, String packageName) {
         if (!chatEnabled() || !chatAllowed(packageName)) return;
         for (StatusBarNotification item : ChatNotifications.current()) {
-            if (!key.equals(item.getKey()) || !packageName.equals(item.getPackageName())) continue;
+            if (!key.equals(item.getKey()) || !conversation.equals(ChatNotifications.conversationKey(item)) || !packageName.equals(item.getPackageName())) continue;
             PendingIntent open = chatContentIntent(item);
             if (open != null) try {
                 if (Build.VERSION.SDK_INT >= 34) {
@@ -1329,7 +1337,7 @@ public class HomeActivity extends Activity {
             } catch (PendingIntent.CanceledException | SecurityException ignored) { }
             break;
         }
-        openChatApp(packageName);
+        Toast.makeText(this, "Could not open this conversation. Use Open app instead.", Toast.LENGTH_SHORT).show();
     }
     private void performChatAction(String key, String conversation, String reply) {
         if (chatEnabled()) for (StatusBarNotification item : ChatNotifications.current()) {
@@ -1500,6 +1508,7 @@ public class HomeActivity extends Activity {
         if ((request == EXPORT_SETTINGS || request == IMPORT_SETTINGS || request == EXPORT_LOOK || request == IMPORT_LOOK) && result == RESULT_OK && data != null && data.getData() != null) {
             boolean exporting = request == EXPORT_SETTINGS || request == EXPORT_LOOK;
             try {
+                if (!"content".equals(data.getData().getScheme())) throw new IOException("Expected a document URI");
                 if (exporting) { exportSettings(data.getData(), request == EXPORT_LOOK); Toast.makeText(this, "Settings exported", Toast.LENGTH_SHORT).show(); }
                 else importSettings(data.getData(), request == IMPORT_LOOK);
             } catch (IOException | JSONException | SecurityException e) {
