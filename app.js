@@ -534,9 +534,9 @@ $('restart').onclick = () => { showWelcome(true); $('begin').focus({preventScrol
 
 // The preview uses fictional notifications and never asks for Android access.
 const chatSamples = [
-  {app:'WhatsApp', sender:'Sam', message:'Are we still meeting at six?', reply:true},
+  {app:'WhatsApp', sender:'Sam', earlier:'I booked a table for us.', message:'Are we still meeting at six?', reply:true},
   {app:'Telegram', sender:'Alex', message:'I sent the details to the group.', reply:true},
-  {app:'Instagram', sender:'Jordan', message:'Sent you a photo.', reply:false},
+  {app:'Instagram', sender:'Jordan', canOpen:false, message:'Sent you a photo.', reply:false},
   {app:'Messenger', sender:'Taylor', message:'Thanks for checking in!', reply:true},
 ];
 let chatEnabled = read('chats-enabled', false), chatPreviews = read('chat-previews', false), chatExcluded = read('chat-excluded', []);
@@ -555,16 +555,27 @@ function showChats() {
   const visible = chatSamples.filter(chat => !chatExcluded.includes(chat.app) && !hidden.includes(chat.app) && !locked.includes(chat.app));
   for (const chat of visible) {
     const row = document.createElement('section'); row.className = 'chat-row';
-    const name = document.createElement('strong'); name.textContent = chat.app;
-    const detail = hint(chatPreviews ? `${chat.sender}: ${chat.message}` : 'Message preview hidden');
-    const actions = document.createElement('div'); actions.className = 'chat-actions';
-    actions.append(button('Open app', () => { dialog.close(); openDemo(chat.app); }, `Open ${chat.app}`));
-    actions.append(button('Open chat', () => { dialog.close(); openDemo(`${chat.app}: ${chat.sender}`); }, `Open chat in ${chat.app}`));
-    if (chat.reply) actions.append(button('Reply', () => showDemoReply(chat), `Reply via ${chat.app}`));
-    row.append(name, detail, actions); rows.append(row);
+    const title = chatPreviews ? chat.sender : `Conversation · ${chat.app}`;
+    const open = button(`${title}  ›`, () => showDemoThread(chat), title);
+    open.className = 'chat-thread';
+    row.append(open, hint(`${chat.app} · ${chatPreviews ? chat.message : 'Preview hidden'}`));
+    rows.append(row);
   }
   if (!visible.length) rows.append(hint('No active messages from included apps.'));
   menu('Chats', [['Chat settings', chatSettings]], rows);
+}
+function showDemoThread(chat) {
+  const detail = document.createElement('div'); detail.className = 'chat-row';
+  detail.append(hint(`${chat.app} · Fictional active notifications`));
+  if (!chatPreviews) detail.append(hint('Message text is hidden. You can enable previews in Chat settings.'));
+  else for (const value of [chat.earlier, chat.message].filter(Boolean)) {
+    const message = document.createElement('p'); message.textContent = value; detail.append(message);
+  }
+  const actions = [[`Open ${chat.app}`, () => openDemo(chat.app)]];
+  if (chat.canOpen !== false) actions.push(['Open conversation', () => openDemo(`${chat.app}: ${chat.sender}`)]);
+  if (chat.reply) actions.push([`Reply via ${chat.app}`, () => showDemoReply(chat)]);
+  actions.push(['Back to Chats', showChats]);
+  menu(chatPreviews ? chat.sender : `Conversation · ${chat.app}`, actions, detail);
 }
 function showDemoReply(chat) {
   const text = document.createElement('textarea'); text.placeholder = 'Write a text reply'; text.setAttribute('aria-label', 'Reply text');
@@ -572,7 +583,8 @@ function showDemoReply(chat) {
     if (!text.value.trim()) { showChats(); return; }
     $('toast').textContent = `Demo reply to ${chat.app}`;
     clearTimeout(timer); timer = setTimeout(() => $('toast').textContent = '', 2200);
-  }], ['Back to Chats', showChats]], text);
+    showDemoThread(chat);
+  }], ['Back to conversation', () => showDemoThread(chat)]], text);
   text.focus();
 }
 function chatSettings() {
