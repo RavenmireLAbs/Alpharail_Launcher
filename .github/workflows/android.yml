@@ -65,4 +65,9 @@ jobs:
           APK: ${{ steps.build.outputs.apk }}
           TAG: ${{ steps.build.outputs.tag }}
         run: |
-          gh release create "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Alpharail $TAG" --notes "Permanently signed Alpharail APK for Android 8.0+. If you installed a debug-signed Alpharail build, export your settings before uninstalling it and installing this release. Future APKs signed with this same key can update in place."
+          notes="release-notes/$TAG.md"
+          if [[ -s "$notes" ]]; then
+            gh release create "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Alpharail $TAG" --notes-file "$notes"
+          else
+            gh release create "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Alpharail $TAG" --generate-notes
+          fi
