@@ -166,7 +166,19 @@ public class HomeActivity extends Activity {
         GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(radius)); return shape;
     }
     private void base() {
-        root = column(); root.setFocusableInTouchMode(true); root.setBackgroundColor(paper); root.setPadding(dp(18), dp(14), dp(18), 0); setContentView(root);
+        boolean clearWallpaperLayer = !welcome && homeShowsWallpaper() && bundledWallpaper() < 0;
+        root = clearWallpaperLayer ? new LinearLayout(this) {
+            @Override public void draw(android.graphics.Canvas canvas) {
+                // Clear invalidated pixels before painting rows into the transparent layer.
+                if (!canvas.isHardwareAccelerated()) canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR);
+                super.draw(canvas);
+            }
+        } : column();
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setFocusableInTouchMode(true);
+        if (clearWallpaperLayer) root.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        else root.setBackgroundColor(paper);
+        root.setPadding(dp(18), dp(14), dp(18), 0); setContentView(root);
     }
     private FrameLayout heroFrame() {
         FrameLayout frame = new FrameLayout(this) {
@@ -210,38 +222,59 @@ public class HomeActivity extends Activity {
         int index = prefs.getInt("bundledWallpaper", -1);
         return index >= 0 && index < WALLPAPERS.length ? index : -1;
     }
-    private boolean lightHomeWallpaper() { return homeShowsWallpaper() && bundledWallpaper() >= 0 && bundledWallpaper() < 5; }
+    private boolean systemWallpaperLight;
+    private boolean lightHomeWallpaper() {
+        if (!homeShowsWallpaper()) return false;
+        int selected = bundledWallpaper();
+        return selected < 0 ? systemWallpaperLight : selected < 5;
+    }
+    private boolean systemWallpaperUsesDarkText() {
+        if (Build.VERSION.SDK_INT < 27) return false;
+        try {
+            WallpaperColors colors = WallpaperManager.getInstance(this).getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
+            if (colors == null) return false;
+            if (Build.VERSION.SDK_INT >= 31) return (colors.getColorHints() & WallpaperColors.HINT_SUPPORTS_DARK_TEXT) != 0;
+            return colors.getPrimaryColor().luminance() > .72;
+        } catch (RuntimeException ignored) { return false; }
+    }
     private int wallpaperRes(int index) {
         return getResources().getIdentifier("wall_" + WALLPAPERS[index].toLowerCase(Locale.ROOT).replace(' ', '_'), "drawable", getPackageName());
     }
-    private void applyHomeBackground() {
-        if (!homeShowsWallpaper()) return;
+    private void configureHomeWindow() {
         Window window = getWindow();
-        int selected = bundledWallpaper();
-        if (selected < 0) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
-            window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
-            window.setFormat(android.graphics.PixelFormat.TRANSLUCENT);
-        } else {
-            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeResource(getResources(), wallpaperRes(selected));
-            if (bitmap != null) window.setBackgroundDrawable(new android.graphics.drawable.BitmapDrawable(getResources(), bitmap) {
-                private final android.graphics.RectF crop = new android.graphics.RectF();
-                private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
-                @Override public void draw(android.graphics.Canvas canvas) {
-                    android.graphics.Rect bounds = getBounds();
-                    float scale = Math.max((float)bounds.width() / bitmap.getWidth(), (float)bounds.height() / bitmap.getHeight());
-                    float w = bitmap.getWidth() * scale, h = bitmap.getHeight() * scale;
-                    crop.set(bounds.exactCenterX() - w / 2, bounds.exactCenterY() - h / 2,
-                        bounds.exactCenterX() + w / 2, bounds.exactCenterY() + h / 2);
-                    canvas.drawBitmap(bitmap, null, crop, paint);
-                }
-            });
-        }
-        root.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
-        window.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+        boolean systemWallpaper = homeShowsWallpaper() && bundledWallpaper() < 0;
+        systemWallpaperLight = systemWallpaper && systemWallpaperUsesDarkText();
+        if (systemWallpaper) window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
+        window.setBackgroundDrawable(new ColorDrawable(systemWallpaper ? android.graphics.Color.TRANSPARENT : paper));
+        // Pick the surface format before attaching the Home view hierarchy.
+        window.setFormat(systemWallpaper ? android.graphics.PixelFormat.TRANSLUCENT : android.graphics.PixelFormat.OPAQUE);
+        if (!homeShowsWallpaper()) return;
+        int barColor = systemWallpaper ? android.graphics.Color.TRANSPARENT : lightHomeWallpaper() ? 0xffeeeeee : 0xff15131c;
+        window.setStatusBarColor(barColor);
+        window.setNavigationBarColor(barColor);
         if (Build.VERSION.SDK_INT >= 29) { window.setStatusBarContrastEnforced(false); window.setNavigationBarContrastEnforced(false); }
         window.getDecorView().setSystemUiVisibility(lightHomeWallpaper() ? View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR : 0);
+    }
+    private void applyHomeBackground() {
+        if (!homeShowsWallpaper()) return;
+        int selected = bundledWallpaper();
+        if (selected < 0) return; // base() installs the separately composited, cleared layer.
+        android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeResource(getResources(), wallpaperRes(selected));
+        if (bitmap == null) { root.setBackgroundColor(lightHomeWallpaper() ? 0xffeeeeee : 0xff15131c); return; }
+        // Paint the image in the same opaque view hierarchy as the scrolling rows.
+        root.setBackground(new android.graphics.drawable.BitmapDrawable(getResources(), bitmap) {
+            private final android.graphics.RectF crop = new android.graphics.RectF();
+            private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+            @Override public void draw(android.graphics.Canvas canvas) {
+                android.graphics.Rect bounds = getBounds();
+                float scale = Math.max((float)bounds.width() / bitmap.getWidth(), (float)bounds.height() / bitmap.getHeight());
+                float w = bitmap.getWidth() * scale, h = bitmap.getHeight() * scale;
+                crop.set(bounds.exactCenterX() - w / 2, bounds.exactCenterY() - h / 2,
+                    bounds.exactCenterX() + w / 2, bounds.exactCenterY() + h / 2);
+                canvas.drawBitmap(bitmap, null, crop, paint);
+            }
+        });
     }
     private void styleWallpaperText(TextView label) {
         if (!homeShowsWallpaper()) return;
@@ -249,6 +282,11 @@ public class HomeActivity extends Activity {
         label.setShadowLayer(dp(3), 0, dp(1), lightHomeWallpaper() ? 0xffffffff : 0xff000000);
     }
     private void selectWallpaper(boolean enabled, int bundled) {
+        if (settingAndroidWallpaper) {
+            Toast.makeText(this, "Wait for Android to finish applying the wallpaper", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (homeShowsWallpaper() == enabled && bundledWallpaper() == bundled) return;
         prefs.edit().putBoolean("showHomeWallpaper", enabled).putInt("bundledWallpaper", bundled).apply();
         recreate();
     }
@@ -292,10 +330,53 @@ public class HomeActivity extends Activity {
         image.setAdjustViewBounds(true); image.setMaxHeight(dp(470));
         new AlertDialog.Builder(this).setTitle(WALLPAPERS[selected]).setView(image)
             .setNegativeButton("Back", (d,w) -> showWallpaperGallery(group))
-            .setPositiveButton("Apply", (d,w) -> selectWallpaper(true, selected)).show();
+            .setPositiveButton("Apply…", (d,w) -> chooseWallpaperDestination(selected, group)).show();
+    }
+    private void chooseWallpaperDestination(int selected, int group) {
+        new AlertDialog.Builder(this).setTitle("Apply " + WALLPAPERS[selected])
+            .setItems(new String[]{"Alpharail only", "Android Home screen", "Android Home and Lock screens"}, (dialog, which) -> {
+                if (which == 0) selectWallpaper(true, selected);
+                else setAndroidWallpaper(selected, which == 2);
+            }).setNegativeButton("Back", (dialog, which) -> previewWallpaper(selected, group)).show();
+    }
+    private boolean settingAndroidWallpaper;
+    private void setAndroidWallpaper(int selected, boolean includeLockScreen) {
+        if (settingAndroidWallpaper) return;
+        WallpaperManager manager = WallpaperManager.getInstance(getApplicationContext());
+        if (manager == null || !manager.isWallpaperSupported() || !manager.isSetWallpaperAllowed()) {
+            Toast.makeText(this, "Android does not allow wallpaper changes on this device", Toast.LENGTH_LONG).show();
+            return;
+        }
+        int resource = wallpaperRes(selected);
+        if (resource == 0) {
+            Toast.makeText(this, "This wallpaper is unavailable", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int screens = WallpaperManager.FLAG_SYSTEM | (includeLockScreen ? WallpaperManager.FLAG_LOCK : 0);
+        settingAndroidWallpaper = true;
+        Toast.makeText(this, "Applying Android wallpaper…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            boolean success = false;
+            try (InputStream image = getApplicationContext().getResources().openRawResource(resource)) {
+                success = manager.setStream(image, null, false, screens) > 0;
+            } catch (IOException | RuntimeException ignored) { }
+            boolean applied = success;
+            runOnUiThread(() -> {
+                settingAndroidWallpaper = false;
+                if (applied) {
+                    // Keep Home on the opaque bundled rendering path; Android has its own copy for Recents and Lock.
+                    prefs.edit().putBoolean("showHomeWallpaper", true).putInt("bundledWallpaper", selected).apply();
+                }
+                if (isFinishing() || isDestroyed()) return;
+                if (applied) {
+                    Toast.makeText(this, includeLockScreen ? "Home and Lock screen wallpapers updated" : "Home screen wallpaper updated", Toast.LENGTH_SHORT).show();
+                    recreate();
+                } else Toast.makeText(this, "Couldn't change the Android wallpaper. Try Alpharail only instead.", Toast.LENGTH_LONG).show();
+            });
+        }, "alpharail-set-wallpaper").start();
     }
     private void home(int y) {
-        welcome = false; base(); applyHomeBackground();
+        welcome = false; configureHomeWindow(); base(); applyHomeBackground();
         FrameLayout hero = homeShowsWallpaper() ? new FrameLayout(this) : heroFrame();
         LinearLayout face = column(); face.setPadding(dp(18), dp(13), dp(18), dp(9)); hero.addView(face);
         date = text("", 11, 0xffe0e2ff); date.setLetterSpacing(.15f); date.setFocusable(true); date.setOnClickListener(v -> openCalendar()); face.addView(date);
