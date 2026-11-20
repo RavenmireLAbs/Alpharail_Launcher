@@ -96,3 +96,24 @@ main{max-width:1380px;gap:6vw}.intro>.eyebrow{background:#e9edff;border:0;border
 .stage .screen[data-wallpaper-name="astral_stair"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_astral_stair.jpg") !important}
 .stage .screen[data-wallpaper-name="lantern_river"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_lantern_river.jpg") !important}
 .stage .screen[data-wallpaper-name="phoenix_peak"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_phoenix_peak.jpg") !important}
+
+/* Match the native wallpaper-aware long-press panel. */
+.stage .screen:has(.launcher[data-wallpaper="on"]) dialog {
+  background: #000c; color: #fff; border: 0; box-shadow: none;
+}
+.stage .screen[data-wallpaper-light="yes"] dialog {background: #fffc; color: #141414}
+.stage .screen:has(.launcher[data-wallpaper="on"]) dialog::backdrop {background: transparent}
+.stage .screen:has(.launcher[data-wallpaper="on"]) dialog button {color: inherit; border-color: #8885}
+.stage .screen:has(.launcher[data-wallpaper="on"]) dialog button:hover {background: #8883}
+
+.stage .screen:has(.launcher[data-wallpaper="on"]) .settings-page :is(h3,.settings-subtitle,.settings-glyph,#menu-items button) {background:#8882;color:inherit!important}
+.stage .screen:has(.launcher[data-wallpaper="on"]) .settings-page :is(.settings-copy small,.settings-arrow) {color:inherit}
+
+.stage .screen:has(.launcher[data-wallpaper="on"]) dialog :is(.chat-row,.chat-rows,.chat-actions) {color:inherit;border-color:#8885}
+.stage .screen:has(.launcher[data-wallpaper="on"]) dialog textarea {background:#8883;color:inherit;border-color:#8888}
+
+.stage .screen:has(.launcher[data-wallpaper="on"]) dialog :is(h3,p,label,small) {color:inherit}
+.stage .screen:has(.launcher[data-wallpaper="on"]) dialog :is(input,textarea)::placeholder {color:inherit;opacity:.85}
+.clock-cover h2:has(#demo-next-alarm) {display:flex;align-items:center;justify-content:space-between;gap:10px}
+[data-wallpaper-light="yes"] #demo-next-alarm {color:#141414}
+#demo-next-alarm {font:22px/1 Arial,sans-serif;letter-spacing:normal;color:#fff;margin-inline-end:4px}
