@@ -29,6 +29,52 @@ import java.text.Collator;
 import java.util.*;
 
 public class HomeActivity extends Activity {
+    private static final int EXPORT_DIAGNOSTICS = 7401;
+    private File diagnosticFile(boolean previous) { return new File(getFilesDir(), previous ? "navigation-previous.log" : "navigation.log"); }
+    private synchronized void navigationLog(String event) {
+        if (prefs == null || !prefs.getBoolean("navigationLogs", false)) return;
+        try {
+            File file = diagnosticFile(false);
+            if (file.length() > 65536) {
+                File previous = diagnosticFile(true);
+                if (previous.exists() && !previous.delete()) return;
+                if (!file.renameTo(previous)) return;
+            }
+            String line = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS Z", Locale.US).format(new Date())
+                + " uptime=" + android.os.SystemClock.elapsedRealtime() + " " + event + "\n";
+            try (FileOutputStream out = new FileOutputStream(file, true)) { out.write(line.getBytes(StandardCharsets.UTF_8)); }
+        } catch (IOException ignored) { }
+    }
+    private void showDiagnostics() {
+        showSettingsOptions("Diagnostics", Arrays.asList(
+            enabledLabel("Local navigation logs", "navigationLogs"), "Mark reproduction", "Export logs", "Clear logs"), Arrays.asList(
+            () -> {
+                boolean enabled = !prefs.getBoolean("navigationLogs", false);
+                if (!enabled) navigationLog("logging disabled");
+                prefs.edit().putBoolean("navigationLogs", enabled).apply();
+                if (enabled) navigationLog("logging enabled android=" + Build.VERSION.RELEASE + " sdk=" + Build.VERSION.SDK_INT
+                    + " manufacturer=" + Build.MANUFACTURER + " model=" + Build.MODEL + " app=" + installedVersion());
+                showDiagnostics();
+            },
+            () -> { navigationLog("USER reproduction marker"); Toast.makeText(this, "Marker added if logging is enabled", Toast.LENGTH_SHORT).show(); showDiagnostics(); },
+            () -> {
+                Intent export = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("text/plain").putExtra(Intent.EXTRA_TITLE, "Alpharail-navigation.txt");
+                try { startActivityForResult(export, EXPORT_DIAGNOSTICS); }
+                catch (ActivityNotFoundException e) { Toast.makeText(this, "No document picker available", Toast.LENGTH_SHORT).show(); }
+            },
+            () -> launcherDialog().setTitle("Clear diagnostic logs?").setMessage("Deletes local navigation logs. Exported copies are not removed.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Clear", (d,w) -> {
+                    boolean cleared = true;
+                    for (boolean previous : new boolean[]{true, false}) { File file = diagnosticFile(previous); if (file.exists() && !file.delete()) cleared = false; }
+                    Toast.makeText(this, cleared ? "Logs cleared" : "Could not clear all logs", Toast.LENGTH_SHORT).show();
+                    showDiagnostics();
+                }).show()), this::showSystemSettings);
+    }
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused); navigationLog("window focus=" + focused);
+    }
+    @Override public void onUserLeaveHint() { navigationLog("user leave hint"); super.onUserLeaveHint(); }
     private int paper, ink, moss, dividerColor;
     private static final int PRIMARY = 0xff4039b4;
     private int accent, surface;
@@ -108,7 +154,7 @@ public class HomeActivity extends Activity {
         }
         boolean black = prefs.getInt("theme", 0) == 1;
         if (black) setTheme(getResources().getIdentifier("StillBlackTheme", "style", getPackageName()));
-        super.onCreate(state);
+        super.onCreate(state); navigationLog("activity create restored=" + (state != null));
         paper = black ? 0xff000000 : 0xffffffff;
         ink = black ? 0xfff3f5fa : 0xff202124;
         moss = black ? 0xffacb5c8 : 0xff545e74;
@@ -171,11 +217,11 @@ public class HomeActivity extends Activity {
         chatsButton.setContentDescription(unread ? "Chats, new messages" : "Chats");
     }
     @Override protected void onStart() { super.onStart(); host.startListening(); handler.post(tick); ChatNotifications.observers.add(updateChatsDot); updateChatsDot.run(); }
-    @Override protected void onStop() { handler.removeCallbacks(tick); handler.removeCallbacks(refreshAppDots); ChatNotifications.observers.remove(updateChatsDot);
+    @Override protected void onStop() { navigationLog("activity stop"); handler.removeCallbacks(tick); handler.removeCallbacks(refreshAppDots); ChatNotifications.observers.remove(updateChatsDot);
         for (AlertDialog dialog : new ArrayList<>(privateChatDialogs)) dialog.dismiss();
         privateChatDialogs.clear(); chatAvatars.evictAll(); sessionReplies.evictAll(); host.stopListening(); super.onStop(); }
     @Override protected void onResume() {
-        super.onResume(); updateForeground = true;
+        super.onResume(); navigationLog("activity resume panels=" + homePanels.size()); updateForeground = true;
         if (!welcome && clock != null) { handler.removeCallbacks(tick); handler.post(tick); }
         if (!welcome && scroll != null) {
             if (reloadApps() || prefs.getBoolean("appDots", false) || prefs.getBoolean("showWork", false) || prefs.getBoolean("showNewApps", true)) refresh();
@@ -184,6 +230,7 @@ public class HomeActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
+        navigationLog("new intent main=" + Intent.ACTION_MAIN.equals(intent.getAction()) + " home=" + intent.hasCategory(Intent.CATEGORY_HOME) + " panels=" + homePanels.size());
         if (Intent.ACTION_MAIN.equals(intent.getAction()) && intent.hasCategory(Intent.CATEGORY_HOME)) {
             // Home must close panels, not leave a full-screen dialog above the launcher.
             for (Dialog panel : new ArrayList<>(homePanels)) panel.dismiss();
@@ -192,7 +239,7 @@ public class HomeActivity extends Activity {
         if (!welcome && scroll != null) { clearSearch(); scroll.scrollTo(0, 0); }
     }
 
-    @Override protected void onDestroy() { handler.removeCallbacks(expireUndo); handler.removeCallbacks(hideLetter); super.onDestroy(); }
+    @Override protected void onDestroy() { navigationLog("activity destroy changingConfig=" + isChangingConfigurations()); handler.removeCallbacks(expireUndo); handler.removeCallbacks(hideLetter); super.onDestroy(); }
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
     private LinearLayout column() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); return v; }
     private TextView text(String value, int size, int color) {
@@ -213,6 +260,7 @@ public class HomeActivity extends Activity {
         dialog.setOnShowListener(ignored -> {
             View decor = dialog.getWindow().getDecorView();
             if (!decor.isAttachedToWindow() || !homePanels.add(dialog)) return;
+            navigationLog("panel attached type=" + dialog.getClass().getSimpleName() + " count=" + homePanels.size());
             final boolean hidesHome = homeShowsWallpaper();
             if (hidesHome) wallpaperOverlayCount++;
             if (root != null) root.invalidate();
@@ -221,6 +269,7 @@ public class HomeActivity extends Activity {
                 @Override public void onViewDetachedFromWindow(View view) {
                     view.removeOnAttachStateChangeListener(this);
                     homePanels.remove(dialog);
+                    navigationLog("panel detached count=" + homePanels.size());
                     if (hidesHome) wallpaperOverlayCount = Math.max(0, wallpaperOverlayCount - 1);
                     if (root != null) root.invalidate();
                 }
@@ -1028,7 +1077,7 @@ public class HomeActivity extends Activity {
             Arrays.asList(this::showClockSettings, this::showWidgets, this::reorderFavorites, this::manageCollections, this::showListSettings, this::showWorkSettings, this::showNewAppSettings));
     }
     private void showSystemSettings() {
-        showSettingsGroup("System", Arrays.asList("Updates", "Set as Home"), Arrays.asList(this::showUpdateSettings, this::setHome));
+        showSettingsGroup("System", Arrays.asList("Updates", "Set as Home", "Diagnostics"), Arrays.asList(this::showUpdateSettings, this::setHome, this::showDiagnostics));
     }
     private String enabledLabel(String title, String key) {
         return title + ": " + (prefs.getBoolean(key, false) ? "On" : "Off");
@@ -1097,7 +1146,7 @@ public class HomeActivity extends Activity {
         }, "alpharail-update-check").start();
     }
     private boolean updateForeground;
-    @Override protected void onPause() { updateForeground = false; handler.removeCallbacks(tick); super.onPause(); }
+    @Override protected void onPause() { navigationLog("activity pause"); updateForeground = false; handler.removeCallbacks(tick); super.onPause(); }
     private void offerUpdate(String version) {
         launcherDialog().setTitle("Alpharail v" + version + " is available")
             .setMessage("Open the official GitHub APK in your browser. Android will ask you to confirm installation.")
@@ -2633,6 +2682,22 @@ public class HomeActivity extends Activity {
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == EXPORT_DIAGNOSTICS) {
+            if (result == RESULT_OK && data != null && data.getData() != null) try {
+                Uri uri = data.getData();
+                if (!"content".equals(uri.getScheme())) throw new IOException("Expected document URI");
+                try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                    if (out == null) throw new IOException("No output stream");
+                    out.write("Alpharail local navigation diagnostics. No message contents, search text, or app lists are recorded.\n".getBytes(StandardCharsets.UTF_8));
+                    for (boolean previous : new boolean[]{true, false}) {
+                        File file = diagnosticFile(previous); if (!file.exists()) continue;
+                        try (InputStream in = new FileInputStream(file)) { byte[] buffer = new byte[4096]; int n; while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n); }
+                    }
+                }
+                Toast.makeText(this, "Logs exported", Toast.LENGTH_SHORT).show();
+            } catch (IOException | SecurityException e) { Toast.makeText(this, "Could not export logs", Toast.LENGTH_SHORT).show(); }
+            return;
+        }
         if (request == 11 && pending != -1) { if (result == RESULT_OK) configureWidget(); else finishWidget(false); }
         if (request == 12) finishWidget(result == RESULT_OK);
         if (request == 13) home(scroll.getScrollY());
