@@ -65,14 +65,14 @@ jobs:
           APK: ${{ steps.build.outputs.apk }}
           TAG: ${{ steps.build.outputs.tag }}
         run: gh release create "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Still $TAG" --generate-notes
-      - name: Publish v0.3.1 debug APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outputs.tag == 'v0.3.1'
+      - name: Publish v0.3.2 debug APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.build.outputs.tag == 'v0.3.2'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=v0.3.1
+          tag=v0.3.2
           if gh release view "$tag" >/dev/null 2>&1; then exit 0; fi
-          apk=Still-v0.3.1-debug.apk
+          apk=Still-v0.3.2-debug.apk
           android/scripts/package-apk.sh "$apk"
-          gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title 'Still v0.3.1 (Debug APK)' --notes 'Hardens chat privacy, reply and conversation actions, App Lock checks, backup document handling, and the browser preview. Android 8.0+. This debug APK uses a different signing key from earlier releases. Export your settings before uninstalling the old build; widget bindings and App Lock do not carry over.'
+          gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title 'Still v0.3.2 (Debug APK)' --notes 'Adds app list and search caching, live Chats refresh, a wider alphabet rail, guided widget recovery, and custom app names in backups. Android 8.0+. This debug APK uses a different signing key from earlier releases. Export your settings before uninstalling the old build; widget bindings and App Lock do not carry over.'

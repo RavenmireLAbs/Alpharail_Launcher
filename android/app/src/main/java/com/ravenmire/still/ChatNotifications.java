@@ -21,9 +21,15 @@ public final class ChatNotifications extends NotificationListenerService {
     static boolean isMessagingApp(Context context, String packageName) {
         return MESSAGING_PACKAGES.contains(packageName) || packageName.equals(Telephony.Sms.getDefaultSmsPackage(context));
     }
+    static final Set<Runnable> observers = new HashSet<>();
+    private void changed() { for (Runnable observer : new ArrayList<>(observers)) observer.run(); }
+    @Override public void onNotificationPosted(StatusBarNotification item) {
+        if (item != null && isMessagingApp(this, item.getPackageName())) changed();
+    }
+    @Override public void onNotificationRemoved(StatusBarNotification item) { onNotificationPosted(item); }
     private static ChatNotifications connected;
-    @Override public void onListenerConnected() { connected = this; }
-    @Override public void onListenerDisconnected() { if (connected == this) connected = null; }
+    @Override public void onListenerConnected() { connected = this; changed(); }
+    @Override public void onListenerDisconnected() { if (connected == this) connected = null; changed(); }
     @Override public void onDestroy() { if (connected == this) connected = null; super.onDestroy(); }
 
     static boolean available() { return connected != null; }
