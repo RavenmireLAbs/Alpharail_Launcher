@@ -2,7 +2,7 @@
 
 A minimal Android launcher built around **one alphabetical app list**. Drag the A–Z rail to jump to a letter, tap **★** for Favorites, or search without opening a separate app drawer.
 
-**[Download the latest signed APK](https://github.com/RavenmireLAbs/Android-launcher/releases/latest)** · Android 8.0+ · `com.ravenmire.alpharail`
+**[Download the latest signed APK](https://github.com/RavenmireLAbs/Alpharail_Launcher/releases/latest)** · Android 8.0+ · `com.ravenmire.alpharail`
 
 ## Get started
 

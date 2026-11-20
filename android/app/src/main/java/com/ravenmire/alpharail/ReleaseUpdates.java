@@ -8,7 +8,7 @@ import org.json.*;
 
 /** Only discovers stable, versioned Alpharail release APKs from the official repository. */
 final class ReleaseUpdates {
-    private static final String REPO = "RavenmireLAbs/Android-launcher";
+    private static final String REPO = "RavenmireLAbs/Alpharail_Launcher";
     private static final String VERSION = "(?:0|[1-9][0-9]{0,8})(?:\\.(?:0|[1-9][0-9]{0,8})){2}";
     static String downloadUrl(String version) {
         if (version == null || !version.matches(VERSION)) throw new IllegalArgumentException("Invalid version");
