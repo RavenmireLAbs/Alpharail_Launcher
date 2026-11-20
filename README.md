@@ -2,7 +2,7 @@
 
 A minimal Android launcher built around **one alphabetical app list**. Drag the A–Z rail to jump to a letter, tap **★** for Favorites, or search without opening a separate app drawer.
 
-**[Download the latest signed APK](https://github.com/RavenmireLAbs/Android-launcher/releases/latest)** · Android 8.0+ · `com.ravenmire.alpharail`
+**[Download the latest signed APK](https://github.com/RavenmireLAbs/Alpharail_Launcher/releases/latest)** · Android 8.0+ · `com.ravenmire.alpharail`
 
 ## Get started
 
@@ -25,6 +25,10 @@ Open **Chats → Enable Chats**, then grant **Alpharail Chats** notification acc
 Use **App: All** to filter the active inbox by messaging app. Each row shows the source app icon. If previews are enabled and the source supplies a compatible sender picture, Alpharail displays it too. Open a thread to pin it when Android provides a stable conversation ID; pinned threads move to the top when active. Pins stay local and can be cleared in **Chat settings**.
 
 Previews are off by default. Hidden and App Locked apps are excluded. **Reply** and **Open conversation** only appear when a compatible notification action is available; **Open app** is separate. Use **Chat settings** to filter messaging apps or turn Chats off. You can revoke notification access in Android settings.
+
+### Updates
+
+Open **Launcher settings → Updates** to check for a newer signed APK or enable automatic checks. With automatic checks on, Alpharail checks GitHub at most once a day when opened. Downloads open in your browser and Android asks you to confirm installation; updates are not silently downloaded or installed.
 
 ### Backups and upgrades
 

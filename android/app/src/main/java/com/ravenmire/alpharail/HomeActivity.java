@@ -141,7 +141,13 @@ public class HomeActivity extends Activity {
     @Override protected void onStop() { handler.removeCallbacks(tick); ChatNotifications.observers.remove(updateChatsDot);
         for (AlertDialog dialog : new ArrayList<>(privateChatDialogs)) dialog.dismiss();
         privateChatDialogs.clear(); chatAvatars.evictAll(); sessionReplies.evictAll(); host.stopListening(); super.onStop(); }
-    @Override protected void onResume() { super.onResume(); if (!welcome && scroll != null && reloadApps()) refresh(); }
+    @Override protected void onResume() {
+        super.onResume(); updateForeground = true;
+        if (!welcome && scroll != null) {
+            if (reloadApps()) refresh();
+            if (prefs.getBoolean("autoUpdates", false)) checkUpdates(false);
+        }
+    }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); if (!welcome && scroll != null) { clearSearch(); scroll.post(() -> scroll.scrollTo(0, 0)); } }
 
     @Override protected void onDestroy() { handler.removeCallbacks(expireUndo); handler.removeCallbacks(hideLetter); super.onDestroy(); }
@@ -538,10 +544,74 @@ public class HomeActivity extends Activity {
         showMenu("Widgets", labels, actions);
     }
     private void showSettings() {
-        showSettingsPage("Launcher settings", "Make Alpharail yours", new String[]{"Theme", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Set as Home"},
-            new String[]{prefs.getInt("theme", 0) == 1 ? "Black palette" : "White palette", "Style, size and shape", "Typeface and text size", "Favorites and alphabet placement", "Hidden apps and App Lock", "Move your settings to another device", "Choose your default launcher"},
-            new String[]{"◐", "▦", "Aa", "A–Z", "◇", "⇅", "⌂"}, Arrays.asList(this::showThemeSettings, this::showIconSettings, this::showFontSettings,
-                this::showListSettings, this::showPrivacySettings, this::backupMenu, this::setHome), null);
+        showSettingsPage("Launcher settings", "Make Alpharail yours", new String[]{"Theme", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Updates", "Set as Home"},
+            new String[]{prefs.getInt("theme", 0) == 1 ? "Black palette" : "White palette", "Style, size and shape", "Typeface and text size", "Favorites and alphabet placement", "Hidden apps and App Lock", "Move your settings to another device", updateAvailable() ? "Update available" : "Check for new versions", "Choose your default launcher"},
+            new String[]{"◐", "▦", "Aa", "A–Z", "◇", "⇅", "↑", "⌂"}, Arrays.asList(this::showThemeSettings, this::showIconSettings, this::showFontSettings,
+                this::showListSettings, this::showPrivacySettings, this::backupMenu, this::showUpdateSettings, this::setHome), null);
+    }
+    private boolean checkingUpdates, manualUpdateRequested;
+    private String installedVersion() {
+        try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (android.content.pm.PackageManager.NameNotFoundException ignored) { return ""; }
+    }
+    private boolean updateAvailable() {
+        return ReleaseUpdates.newer(prefs.getString("availableUpdate", ""), installedVersion());
+    }
+    private void showUpdateSettings() {
+        boolean automatic = prefs.getBoolean("autoUpdates", false);
+        List<String> labels = new ArrayList<>(Arrays.asList("Check for updates", automatic ? "Turn off automatic checks" : "Turn on automatic checks"));
+        List<Runnable> actions = new ArrayList<>(Arrays.asList(() -> checkUpdates(true), () -> {
+            prefs.edit().putBoolean("autoUpdates", !automatic).apply();
+            if (!automatic) checkUpdates(false);
+            showUpdateSettings();
+        }));
+        if (updateAvailable()) {
+            String version = prefs.getString("availableUpdate", "");
+            labels.add("Download v" + version); actions.add(() -> offerUpdate(version));
+        }
+        showSettingsPage("Updates", "Installed: v" + installedVersion(), labels.toArray(new String[0]),
+            updateAvailable() ? new String[]{"Check GitHub now", "Checks once daily when Alpharail opens", "Open the official APK in your browser"}
+                : new String[]{"Check GitHub now", "Checks once daily when Alpharail opens"},
+            updateAvailable() ? new String[]{"↻", "◷", "↓"} : new String[]{"↻", "◷"}, actions, this::showSettings);
+    }
+    private void checkUpdates(boolean manual) {
+        if (checkingUpdates) { manualUpdateRequested |= manual; return; }
+        long now = System.currentTimeMillis(), last = prefs.getLong("lastUpdateCheck", 0);
+        if (!manual && now >= last && now - last < 24 * 60 * 60 * 1000L) return;
+        checkingUpdates = true; manualUpdateRequested = manual;
+        prefs.edit().putLong("lastUpdateCheck", now).apply();
+        if (manual) Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String result;
+            try { result = ReleaseUpdates.latest(); }
+            catch (IOException | JSONException | RuntimeException e) { result = null; }
+            String version = result;
+            runOnUiThread(() -> {
+                boolean showResult = manualUpdateRequested;
+                checkingUpdates = false; manualUpdateRequested = false;
+                if (isDestroyed() || isFinishing()) return;
+                String previous = prefs.getString("availableUpdate", "");
+                if (version != null) prefs.edit().putString("availableUpdate", version).apply();
+                if (!updateForeground) return;
+                if (version != null && ReleaseUpdates.newer(version, installedVersion())) {
+                    if (showResult) offerUpdate(version);
+                    else if (prefs.getBoolean("autoUpdates", false) && !version.equals(previous))
+                        Toast.makeText(this, "Alpharail v" + version + " is available in Launcher settings → Updates", Toast.LENGTH_LONG).show();
+                } else if (showResult) Toast.makeText(this, version == null ? "Couldn't check for updates. Try again later." : "Alpharail is up to date", Toast.LENGTH_SHORT).show();
+            });
+        }, "alpharail-update-check").start();
+    }
+    private boolean updateForeground;
+    @Override protected void onPause() { updateForeground = false; super.onPause(); }
+    private void offerUpdate(String version) {
+        new AlertDialog.Builder(this).setTitle("Alpharail v" + version + " is available")
+            .setMessage("Open the official GitHub APK in your browser. Android will ask you to confirm installation.")
+            .setNegativeButton("Later", null).setPositiveButton("Open download", (dialog, which) -> {
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(ReleaseUpdates.downloadUrl(version)))); }
+                catch (ActivityNotFoundException | SecurityException ignored) {
+                    Toast.makeText(this, "No browser available to open the download", Toast.LENGTH_SHORT).show();
+                }
+            }).show();
     }
     private void showSettingsPage(String title, String subtitle, String[] labels, String[] details, String[] glyphs, List<Runnable> actions, Runnable back) {
         Dialog page = new Dialog(this);
