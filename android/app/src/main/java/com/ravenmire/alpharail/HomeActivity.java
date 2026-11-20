@@ -173,13 +173,34 @@ public class HomeActivity extends Activity {
     private GradientDrawable rounded(int color, int radius) {
         GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(radius)); return shape;
     }
+    private int wallpaperOverlayCount;
+    private void keepOnlyWallpaperBehind(Dialog dialog) {
+        if (!homeShowsWallpaper()) return;
+        dialog.setOnShowListener(ignored -> {
+            View decor = dialog.getWindow().getDecorView();
+            if (!decor.isAttachedToWindow()) return;
+            wallpaperOverlayCount++;
+            if (root != null) root.invalidate();
+            decor.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                @Override public void onViewAttachedToWindow(View view) { }
+                @Override public void onViewDetachedFromWindow(View view) {
+                    view.removeOnAttachStateChangeListener(this);
+                    wallpaperOverlayCount--;
+                    if (root != null) root.invalidate();
+                }
+            });
+        });
+    }
     private void base() {
         boolean clearWallpaperLayer = !welcome && homeShowsWallpaper() && bundledWallpaper() < 0;
-        root = clearWallpaperLayer ? new LinearLayout(this) {
+        root = !welcome && homeShowsWallpaper() ? new LinearLayout(this) {
             @Override public void draw(android.graphics.Canvas canvas) {
                 // Clear invalidated pixels before painting rows into the transparent layer.
-                if (!canvas.isHardwareAccelerated()) canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR);
+                if (clearWallpaperLayer && !canvas.isHardwareAccelerated()) canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR);
                 super.draw(canvas);
+            }
+            @Override protected void dispatchDraw(android.graphics.Canvas canvas) {
+                if (wallpaperOverlayCount == 0) super.dispatchDraw(canvas);
             }
         } : column();
         root.setOrientation(LinearLayout.VERTICAL);
@@ -706,8 +727,7 @@ public class HomeActivity extends Activity {
         GradientDrawable background = new GradientDrawable();
         boolean wallpaper = homeShowsWallpaper();
         background.setColor(wallpaper ? wallpaperPanelColor() : paper);
-        float radius = dp(20);
-        background.setCornerRadii(new float[]{radius, radius, radius, radius, 0, 0, 0, 0});
+        background.setCornerRadius(dp(20));
         content.setBackground(background);
         content.setPadding(dp(22), dp(12), dp(22), dp(16));
         TextView widgetsOption = action("Widgets", () -> { panel.dismiss(); showWidgets(); });
@@ -719,13 +739,15 @@ public class HomeActivity extends Activity {
         content.addView(widgetsOption);
         content.addView(settingsOption);
         panel.setContentView(content);
+        keepOnlyWallpaperBehind(panel);
         panel.show();
         Window window = panel.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
             if (wallpaper) window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            window.setGravity(Gravity.BOTTOM);
-            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setGravity(Gravity.CENTER);
+            int width = Math.min(dp(360), getWindow().getDecorView().getWidth() - dp(36));
+            window.setLayout(Math.max(dp(160), width), ViewGroup.LayoutParams.WRAP_CONTENT);
         }
     }
     private void showWidgets() {
@@ -849,7 +871,7 @@ public class HomeActivity extends Activity {
             for (int child = 0; child < row.getChildCount(); child++) row.getChildAt(child).setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.bottomMargin = dp(7); cards.addView(row, spacing);
         }
-        page.setContentView(content); page.show();
+        page.setContentView(content); keepOnlyWallpaperBehind(page); page.show();
         Window window = page.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(wallpaper ? android.graphics.Color.TRANSPARENT : paper));
@@ -1169,6 +1191,11 @@ public class HomeActivity extends Activity {
         if (!homeShowsWallpaper()) return new AlertDialog.Builder(this);
         int theme = getResources().getIdentifier(lightHomeWallpaper() ? "WallpaperDialogLight" : "WallpaperDialogDark", "style", getPackageName());
         return new AlertDialog.Builder(this, theme) {
+            @Override public AlertDialog create() {
+                AlertDialog dialog = super.create();
+                keepOnlyWallpaperBehind(dialog);
+                return dialog;
+            }
             @Override public AlertDialog.Builder setView(View view) {
                 styleWallpaperDialogContent(view);
                 return super.setView(view);
