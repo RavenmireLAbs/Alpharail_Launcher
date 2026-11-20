@@ -117,3 +117,10 @@ main{max-width:1380px;gap:6vw}.intro>.eyebrow{background:#e9edff;border:0;border
 .clock-cover h2:has(#demo-next-alarm) {display:flex;align-items:center;justify-content:space-between;gap:10px}
 [data-wallpaper-light="yes"] #demo-next-alarm {color:#141414}
 #demo-next-alarm {font:22px/1 Arial,sans-serif;letter-spacing:normal;color:#fff;margin-inline-end:4px}
+
+/* Keep wallpaper visible without Home labels or icons behind the open panel. */
+.stage .screen:has(.launcher[data-wallpaper="on"]):has(dialog[open]) .launcher {visibility:hidden}
+.stage .screen dialog.bottom-panel {
+  inset:var(--phone-center) auto auto calc(var(--phone-left) + 18px);
+  width:calc(var(--phone-width) - 36px); border-radius:20px; transform:translateY(-50%);
+}
