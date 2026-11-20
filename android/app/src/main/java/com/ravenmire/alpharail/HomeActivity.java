@@ -338,8 +338,16 @@ public class HomeActivity extends Activity {
         if (!query.isEmpty()) search.setText("");
     }
     @Override public void onBackPressed() {
-        if (!welcome && !query.isEmpty()) clearSearch();
-        else super.onBackPressed();
+        if (!welcome && !query.isEmpty()) { clearSearch(); return; }
+        // Finishing the default Home activity here makes Android immediately reopen it.
+        if (Build.VERSION.SDK_INT >= 29) {
+            RoleManager roles = getSystemService(RoleManager.class);
+            if (roles != null && roles.isRoleHeld(RoleManager.ROLE_HOME)) return;
+        }
+        Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+        ResolveInfo resolved = getPackageManager().resolveActivity(home, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+        if (resolved != null && resolved.activityInfo != null && getPackageName().equals(resolved.activityInfo.packageName)) return;
+        super.onBackPressed();
     }
     private void setHome() {
         if (Build.VERSION.SDK_INT >= 29) {
