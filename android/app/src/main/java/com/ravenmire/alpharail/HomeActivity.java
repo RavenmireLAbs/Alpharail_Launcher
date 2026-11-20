@@ -443,13 +443,18 @@ public class HomeActivity extends Activity {
             setAndroidWallpaper(wallpaper, true);
         } else if (wallpaper == -1) {
             prefs.edit().putBoolean("showHomeWallpaper", true).putInt("bundledWallpaper", -1).apply();
-            base(); applyHomeBackground(); refresh();
+            rebuildHomePreservingScroll();
         } else {
             prefs.edit().putBoolean("showHomeWallpaper", false).apply();
-            base(); applyHomeBackground(); refresh();
+            rebuildHomePreservingScroll();
         }
         Toast.makeText(this, "Applied “" + preset.optString("name") + "”", Toast.LENGTH_SHORT).show();
         showWallpaperPresets();
+    }
+    // Recreate the complete Home view tree, not just its empty background root.
+    private void rebuildHomePreservingScroll() {
+        int position = scroll == null ? 0 : scroll.getScrollY();
+        home(position);
     }
     private void showClockSettings() {
         showMenu("Clock", Arrays.asList(
@@ -457,8 +462,8 @@ public class HomeActivity extends Activity {
                 prefs.getBoolean("clockHideDate", false) ? "Show date" : "Hide date",
                 prefs.getBoolean("clockAlarmTime", false) ? "Hide alarm time" : "Show next alarm time"),
             Arrays.asList(
-                () -> { prefs.edit().putBoolean("clockCompact", !prefs.getBoolean("clockCompact", false)).apply(); base(); applyHomeBackground(); refresh(); showClockSettings(); },
-                () -> { prefs.edit().putBoolean("clockHideDate", !prefs.getBoolean("clockHideDate", false)).apply(); base(); applyHomeBackground(); refresh(); showClockSettings(); },
+                () -> { prefs.edit().putBoolean("clockCompact", !prefs.getBoolean("clockCompact", false)).apply(); rebuildHomePreservingScroll(); showClockSettings(); },
+                () -> { prefs.edit().putBoolean("clockHideDate", !prefs.getBoolean("clockHideDate", false)).apply(); rebuildHomePreservingScroll(); showClockSettings(); },
                 () -> { prefs.edit().putBoolean("clockAlarmTime", !prefs.getBoolean("clockAlarmTime", false)).apply(); handler.post(tick); showClockSettings(); }));
     }
     private void previewWallpaper(int selected, int group) {
