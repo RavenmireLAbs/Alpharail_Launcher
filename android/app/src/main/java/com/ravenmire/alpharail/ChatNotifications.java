@@ -30,7 +30,7 @@ public final class ChatNotifications extends NotificationListenerService {
     private static ChatNotifications connected;
     @Override public void onListenerConnected() { connected = this; changed(); }
     @Override public void onListenerDisconnected() { if (connected == this) connected = null; changed(); }
-    @Override public void onDestroy() { if (connected == this) connected = null; super.onDestroy(); }
+    @Override public void onDestroy() { if (connected == this) { connected = null; changed(); } super.onDestroy(); }
 
     static boolean available() { return connected != null; }
     static List<StatusBarNotification> current() {
