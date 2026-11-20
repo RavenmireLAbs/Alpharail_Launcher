@@ -176,8 +176,9 @@ public class HomeActivity extends Activity {
         } : column();
         root.setOrientation(LinearLayout.VERTICAL);
         root.setFocusableInTouchMode(true);
-        if (clearWallpaperLayer) root.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-        else root.setBackgroundColor(paper);
+        // Bypass hardware display-list reuse for Home in both wallpaper modes.
+        if (!welcome && homeShowsWallpaper()) root.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        if (!clearWallpaperLayer) root.setBackgroundColor(paper);
         root.setPadding(dp(18), dp(14), dp(18), 0); setContentView(root);
     }
     private FrameLayout heroFrame() {
@@ -330,14 +331,8 @@ public class HomeActivity extends Activity {
         image.setAdjustViewBounds(true); image.setMaxHeight(dp(470));
         new AlertDialog.Builder(this).setTitle(WALLPAPERS[selected]).setView(image)
             .setNegativeButton("Back", (d,w) -> showWallpaperGallery(group))
-            .setPositiveButton("Apply…", (d,w) -> chooseWallpaperDestination(selected, group)).show();
-    }
-    private void chooseWallpaperDestination(int selected, int group) {
-        new AlertDialog.Builder(this).setTitle("Apply " + WALLPAPERS[selected])
-            .setItems(new String[]{"Alpharail only", "Android Home screen", "Android Home and Lock screens"}, (dialog, which) -> {
-                if (which == 0) selectWallpaper(true, selected);
-                else setAndroidWallpaper(selected, which == 2);
-            }).setNegativeButton("Back", (dialog, which) -> previewWallpaper(selected, group)).show();
+            .setNeutralButton("Home only", (d,w) -> setAndroidWallpaper(selected, false))
+            .setPositiveButton("Home & Lock", (d,w) -> setAndroidWallpaper(selected, true)).show();
     }
     private boolean settingAndroidWallpaper;
     private void setAndroidWallpaper(int selected, boolean includeLockScreen) {
@@ -364,14 +359,14 @@ public class HomeActivity extends Activity {
             runOnUiThread(() -> {
                 settingAndroidWallpaper = false;
                 if (applied) {
-                    // Keep Home on the opaque bundled rendering path; Android has its own copy for Recents and Lock.
-                    prefs.edit().putBoolean("showHomeWallpaper", true).putInt("bundledWallpaper", selected).apply();
+                    // Follow Android after applying there so Home uses the same wallpaper and crop.
+                    prefs.edit().putBoolean("showHomeWallpaper", true).putInt("bundledWallpaper", -1).apply();
                 }
                 if (isFinishing() || isDestroyed()) return;
                 if (applied) {
                     Toast.makeText(this, includeLockScreen ? "Home and Lock screen wallpapers updated" : "Home screen wallpaper updated", Toast.LENGTH_SHORT).show();
                     recreate();
-                } else Toast.makeText(this, "Couldn't change the Android wallpaper. Try Alpharail only instead.", Toast.LENGTH_LONG).show();
+                } else Toast.makeText(this, "Couldn't change the Android wallpaper. Check your device's wallpaper settings.", Toast.LENGTH_LONG).show();
             });
         }, "alpharail-set-wallpaper").start();
     }
