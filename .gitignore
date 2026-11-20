@@ -4,3 +4,5 @@ local.properties
 *.apk
 *.jks
 *.p12
+
+/google_drive/
