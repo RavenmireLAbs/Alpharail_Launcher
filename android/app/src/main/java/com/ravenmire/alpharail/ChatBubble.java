@@ -58,7 +58,7 @@ final class ChatBubble {
         if (!enabled || locked || dismissed || items().isEmpty()) { removeBubble(); closePanel(); }
         else if (bubble == null) {
             TextView icon = button("●", this::openPanel); icon.setGravity(Gravity.CENTER); icon.setContentDescription("Messaging bubble. Tap to open; drag to move.");
-            icon.setBackground(background(0xff35324b, 28));
+            icon.setBackground(background(accent(), 28));
             WindowManager.LayoutParams p = params(dp(56), dp(56), false); p.x = prefs().getInt("bubbleX", dp(8)); p.y = prefs().getInt("bubbleY", dp(180));
             p.x = Math.max(0, Math.min(p.x, service.getResources().getDisplayMetrics().widthPixels - dp(56)));
             p.y = Math.max(dp(28), Math.min(p.y, service.getResources().getDisplayMetrics().heightPixels - dp(100)));
@@ -80,41 +80,107 @@ final class ChatBubble {
         }
         if (enabled) handler.postDelayed(pulse, 1000);
     }
-    private void openPanel() {
-        closePanel();
-        if (service.getSystemService(KeyguardManager.class).isKeyguardLocked()) return;
-        LinearLayout content = new LinearLayout(service); content.setOrientation(1); content.setPadding(dp(8),dp(8),dp(8),dp(8)); content.setBackground(background(0xff202126,20));
-        content.addView(button("Close",this::closePanel));
-        ScrollView scroll = new ScrollView(service); LinearLayout rows = new LinearLayout(service); rows.setOrientation(1); scroll.addView(rows); content.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        for (StatusBarNotification item : items()) {
-            Notification n=item.getNotification(); String pkg=item.getPackageName(); String name=pkg;
-            try { name=service.getPackageManager().getApplicationLabel(service.getPackageManager().getApplicationInfo(pkg,0)).toString(); } catch (Exception ignored) { }
-            boolean preview=prefs().getBoolean("bubblePreviews",false) && !prefs().getStringSet("chatHidePreviews",Collections.emptySet()).contains(pkg);
-            String title=preview && n.extras!=null ? String.valueOf(n.extras.getCharSequence(Notification.EXTRA_TITLE,name)) : name;
-            PendingIntent open=n.contentIntent;
-            rows.addView(button(title, () -> {
-                if (open==null || !pkg.equals(open.getCreatorPackage()) || (Build.VERSION.SDK_INT>=31 && !open.isActivity())) return;
-                try { open.send(); closePanel(); } catch (PendingIntent.CanceledException ignored) { Toast.makeText(service,"Conversation unavailable",0).show(); }
-            }));
-            if (preview && n.extras!=null) { TextView body=button(String.valueOf(n.extras.getCharSequence(Notification.EXTRA_TEXT,"")),()->{}); body.setMaxLines(3); rows.addView(body); }
-            Notification.Action reply=ChatNotifications.replyAction(item);
-            if (reply!=null) {
-                EditText draft=new EditText(service); draft.setTextColor(Color.WHITE); draft.setHintTextColor(0xffbbbbbb); draft.setHint("Reply");
-                draft.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4000)}); rows.addView(draft);
-                TextView send=button("Send",()->{}); send.setOnClickListener(v->{
-                    String text=draft.getText().toString().trim(); if(text.isEmpty())return; send.setEnabled(false);
-                    try { RemoteInput input=ChatNotifications.replyInput(reply); Bundle results=new Bundle();results.putCharSequence(input.getResultKey(),text);
-                        Intent intent=new Intent();RemoteInput.addResultsToIntent(reply.getRemoteInputs(),intent,results);reply.actionIntent.send(service,0,intent);
-                        draft.setText(""); Toast.makeText(service,"Reply submitted",0).show();
-                    } catch (PendingIntent.CanceledException | RuntimeException e) { draft.setError("Could not send; draft kept"); }
-                    send.setEnabled(true);
-                });rows.addView(send);
-            }
-        }
-        content.addView(button("Dismiss bubble until next notification",()->{dismissed=true;closePanel();removeBubble();}));
-        WindowManager.LayoutParams p=params(Math.min(dp(350),service.getResources().getDisplayMetrics().widthPixels-dp(24)),Math.min(dp(500),service.getResources().getDisplayMetrics().heightPixels-dp(140)),true);p.x=dp(12);p.y=dp(60);
+    private boolean expanded;
+    private boolean dark() { int mode=prefs().getInt("bubbleTheme",0); return mode==2 || (mode==0 && prefs().getInt("theme",0)==1); }
+    private int ink() { return dark()?0xfff5f5fa:0xff202124; }
+    private int surface() { return dark()?0xff292b35:0xffeeeff5; }
+    private int accent() { return new int[]{0xff4039b4,0xff1769c2,0xff00796b,0xffad285d,0xff8c4828,0xff6554b0}[Math.max(0,Math.min(5,prefs().getInt("bubbleAccent",0)))]; }
+    private String appName(String pkg) {
+        try { return service.getPackageManager().getApplicationLabel(service.getPackageManager().getApplicationInfo(pkg,0)).toString(); }
+        catch(Exception ignored){return pkg;}
+    }
+    private boolean previews(StatusBarNotification item) {
+        return prefs().getBoolean("bubblePreviews",false) && !prefs().getStringSet("chatHidePreviews",Collections.emptySet()).contains(item.getPackageName());
+    }
+    private String title(StatusBarNotification item) {
+        return previews(item) && item.getNotification().extras!=null ? String.valueOf(item.getNotification().extras.getCharSequence(Notification.EXTRA_TITLE,appName(item.getPackageName()))) : appName(item.getPackageName());
+    }
+    private TextView control(String text,Runnable action) { TextView v=button(text,action);v.setTextColor(ink());return v; }
+    private LinearLayout column() { LinearLayout v=new LinearLayout(service);v.setOrientation(1);return v; }
+    private TextView avatar(String title) {
+        TextView v=button(title.isEmpty()?"?":new String(Character.toChars(title.codePointAt(0))).toUpperCase(Locale.getDefault()),()->{});
+        v.setGravity(Gravity.CENTER);v.setBackground(background(accent(),24));v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);return v;
+    }
+    private void mount(LinearLayout content) {
+        WindowManager.LayoutParams p=params(Math.min(dp(expanded?440:350),service.getResources().getDisplayMetrics().widthPixels-dp(24)),
+            Math.min(dp(expanded?680:500),service.getResources().getDisplayMetrics().heightPixels-dp(140)),true);p.x=dp(12);p.y=dp(60);
+        content.setBackground(background(dark()?0xff191a21:0xfffafaff,24));content.setPadding(dp(10),dp(8),dp(10),dp(10));
         content.setOnKeyListener((v,key,event)->{if(key==KeyEvent.KEYCODE_BACK && event.getAction()==KeyEvent.ACTION_UP){closePanel();return true;}return false;});
-        try { windows.addView(content,p);panel=content;content.setFocusableInTouchMode(true);content.requestFocus(); } catch(RuntimeException ignored) { }
+        try {windows.addView(content,p);panel=content;content.setFocusableInTouchMode(true);content.requestFocus();}catch(RuntimeException ignored){}
+    }
+    private void openPanel() { showPanel(null); }
+    private void showPanel(StatusBarNotification selected) {
+        closePanel();
+        List<StatusBarNotification> active=items();
+        if(service.getSystemService(KeyguardManager.class).isKeyguardLocked() || !Settings.canDrawOverlays(service))return;
+        if(selected!=null) { StatusBarNotification match=null;for(StatusBarNotification item:active)if(item.getKey().equals(selected.getKey()))match=item;selected=match; }
+        final StatusBarNotification thread=selected;
+        LinearLayout content=column();
+        LinearLayout header=new LinearLayout(service);header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(control(thread==null?"Chats":"‹",()->showPanel(null)),new LinearLayout.LayoutParams(0,dp(48),1));
+        header.addView(control(expanded?"Shrink":"Expand",()->{expanded=!expanded;showPanel(thread);}));
+        header.addView(control("×",this::closePanel));content.addView(header);
+        ScrollView scroll=new ScrollView(service);LinearLayout rows=column();scroll.addView(rows);content.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        if(thread==null) {
+            Set<String> seen=new HashSet<>();
+            for(StatusBarNotification item:active){
+                if(!seen.add(ChatNotifications.conversationKey(item)))continue;
+                LinearLayout row=new LinearLayout(service);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(4),dp(7),dp(4),dp(7));
+                row.addView(avatar(title(item)),new LinearLayout.LayoutParams(dp(48),dp(48)));
+                TextView label=control(title(item)+"\n"+appName(item.getPackageName()),()->showPanel(item));
+                row.addView(label,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->showPanel(item));rows.addView(row);
+            }
+            if(active.isEmpty())rows.addView(control("No active messaging notifications",()->{}));
+            content.addView(control("Dismiss until next notification",()->{dismissed=true;closePanel();removeBubble();}));
+        } else {
+            LinearLayout identity=new LinearLayout(service);identity.setGravity(Gravity.CENTER_VERTICAL);
+            identity.addView(avatar(title(thread)),new LinearLayout.LayoutParams(dp(44),dp(44)));
+            identity.addView(control(title(thread)+"\n"+appName(thread.getPackageName()),()->{}));rows.addView(identity);
+            if(previews(thread)) {
+                Notification n=thread.getNotification();
+                android.os.Parcelable[] messages=n.extras==null?null:n.extras.getParcelableArray(Notification.EXTRA_MESSAGES);
+                if(messages!=null && messages.length>0){
+                    List<Notification.MessagingStyle.Message> parsed=Notification.MessagingStyle.Message.getMessagesFromBundleArray(messages);
+                    for(int i=Math.max(0,parsed.size()-20);i<parsed.size();i++){
+                        Notification.MessagingStyle.Message message=parsed.get(i);
+                        CharSequence text=message.getText();
+                        String sender=message.getSenderPerson()==null?"":String.valueOf(message.getSenderPerson().getName());
+                        message(rows,(sender.isEmpty()?"":sender+"\n")+(text==null?"Attachment · Open original app":text.toString()),false);
+                    }
+                }else message(rows,n.extras==null?"Preview unavailable":String.valueOf(n.extras.getCharSequence(Notification.EXTRA_TEXT,"Preview unavailable")),false);
+            }else message(rows,"Message previews are off. Enable Bubble message previews in settings to display notification text.",false);
+            content.addView(control("Open in original app ↗",()->{
+                PendingIntent open=thread.getNotification().contentIntent;
+                if(open==null || !thread.getPackageName().equals(open.getCreatorPackage()) || (Build.VERSION.SDK_INT>=31 && !open.isActivity())){Toast.makeText(service,"Open action unavailable",0).show();return;}
+                try{open.send();closePanel();}catch(PendingIntent.CanceledException e){Toast.makeText(service,"Conversation unavailable",0).show();}
+            }));
+            Notification.Action reply=ChatNotifications.replyAction(thread);
+            if(reply!=null){
+                LinearLayout composer=new LinearLayout(service);composer.setGravity(Gravity.CENTER_VERTICAL);composer.setPadding(dp(4),dp(6),dp(4),0);
+                EditText draft=new EditText(service);draft.setTextColor(ink());draft.setHintTextColor(dark()?0xffbbbbcc:0xff626575);draft.setHint("Message");draft.setMaxLines(3);
+                draft.setBackground(background(surface(),22));draft.setPadding(dp(14),dp(10),dp(14),dp(10));
+                draft.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4000)});composer.addView(draft,new LinearLayout.LayoutParams(0,-2,1));
+                TextView send=button("Send",()->{});send.setBackground(background(accent(),24));
+                send.setOnClickListener(v->{
+                    String text=draft.getText().toString().trim();if(text.isEmpty())return;send.setEnabled(false);
+                    boolean allowed=false;for(StatusBarNotification item:items())if(item.getKey().equals(thread.getKey()))allowed=true;
+                    if(!allowed){draft.setError("Notification no longer available");send.setEnabled(true);return;}
+                    try{RemoteInput input=ChatNotifications.replyInput(reply);Bundle result=new Bundle();result.putCharSequence(input.getResultKey(),text);
+                        Intent intent=new Intent();RemoteInput.addResultsToIntent(reply.getRemoteInputs(),intent,result);reply.actionIntent.send(service,0,intent);
+                        draft.setText("");if(previews(thread))message(rows,"You · Submitted\n"+text,true);
+                        scroll.post(()->scroll.fullScroll(View.FOCUS_DOWN));
+                        Toast.makeText(service,"Reply submitted—not a delivery receipt",0).show();
+                    }catch(PendingIntent.CanceledException|RuntimeException e){draft.setError("Could not send; draft kept");}send.setEnabled(true);
+                });composer.addView(send);content.addView(composer);
+            } else content.addView(control("Reply in the original app",()->{}));
+        }
+        mount(content);
+    }
+    private void message(LinearLayout rows,String text,boolean outgoing){
+        LinearLayout row=new LinearLayout(service);row.setGravity(outgoing?Gravity.RIGHT:Gravity.LEFT);row.setPadding(dp(4),dp(5),dp(4),dp(5));
+        TextView body=new TextView(service);body.setText(text.length()>4000?text.substring(0,4000)+"…":text);body.setTextColor(outgoing?Color.WHITE:ink());body.setTextSize(14);
+        body.setPadding(dp(14),dp(10),dp(14),dp(10));body.setMaxWidth(dp(expanded?330:260));body.setBackground(background(outgoing?accent():surface(),18));body.setTextIsSelectable(true);
+        row.addView(body);rows.addView(row);
     }
     private void closePanel(){if(panel!=null){try{windows.removeView(panel);}catch(RuntimeException ignored){}panel=null;}}
     private void removeBubble(){if(bubble!=null){try{windows.removeView(bubble);}catch(RuntimeException ignored){}bubble=null;}}

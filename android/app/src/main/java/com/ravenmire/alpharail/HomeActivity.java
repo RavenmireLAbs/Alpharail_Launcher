@@ -1159,9 +1159,14 @@ public class HomeActivity extends Activity {
         showSettingsGroup("Accessibility", Arrays.asList(enabledLabel("Larger alphabet", "largeRail"), enabledLabel("Reduce animations", "reduceMotion"), enabledLabel("Stronger text contrast", "strongText")),
             Arrays.asList(() -> toggleExtra("largeRail"), () -> toggleExtra("reduceMotion"), () -> toggleExtra("strongText")));
     }
+    private void showBubbleAppearance() {
+        showSettingsOptions("Bubble appearance", Arrays.asList("Theme", "Accent color"), Arrays.asList(
+            () -> setting("Bubble theme", "bubbleTheme", new String[]{"Follow Alpharail", "Light", "Dark"}, 0, () -> { ChatNotifications.refreshBubble(); showBubbleAppearance(); }),
+            () -> setting("Bubble accent", "bubbleAccent", new String[]{"Alpharail", "Blue", "Teal", "Rose", "Copper", "Lavender"}, 0, () -> { ChatNotifications.refreshBubble(); showBubbleAppearance(); })), this::showBubbleSettings);
+    }
     private void showBubbleSettings() {
         showSettingsOptions("Chat bubble", Arrays.asList(enabledLabel("Floating bubble", "chatBubble"), enabledLabel("Bubble message previews", "bubblePreviews"),
-            "Display over other apps", "Notification access"), Arrays.asList(
+            "Display over other apps", "Notification access", "Bubble appearance"), Arrays.asList(
             () -> {
                 if (prefs.getBoolean("chatBubble", false)) { prefs.edit().putBoolean("chatBubble",false).apply(); ChatNotifications.refreshBubble(); showBubbleSettings(); }
                 else launcherDialog().setTitle("Enable floating chat bubble?")
@@ -1170,7 +1175,7 @@ public class HomeActivity extends Activity {
             },
             () -> { prefs.edit().putBoolean("bubblePreviews",!prefs.getBoolean("bubblePreviews",false)).apply(); ChatNotifications.refreshBubble(); showBubbleSettings(); },
             () -> { try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:"+getPackageName()))); } catch(ActivityNotFoundException e) {Toast.makeText(this,"Open Android app settings to grant overlay access",0).show();} },
-            () -> startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))), this::showNotificationSettings);
+            () -> startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)), this::showBubbleAppearance), this::showNotificationSettings);
     }
     private void showNotificationSettings() {
         showSettingsGroup("Notifications & Chats", Arrays.asList(enabledLabel("App notification dots", "appDots"), "Exclude apps from dots", "Chats", "Notification access", "Chat bubble"),
