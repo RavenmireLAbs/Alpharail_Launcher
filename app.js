@@ -4,15 +4,26 @@ const apps = {
 const $ = id => document.getElementById(id);
 const list = $('list'), rail = $('alphabet'), search = $('search'), dialog = $('menu');
 const all = Object.values(apps).flat(), icons = new Map(all);
-const demoWidgets = new Map([['Clock', '9:41'], ['Date', 'Thursday, November 19']]);
+const demoWidgets = new Map([['Clock', '9:41'], ['Date', 'Thursday, November 19'], ['Weather', '21° · Clear']]);
 const read = (key, fallback) => JSON.parse(localStorage.getItem(`still-${key}`) ?? JSON.stringify(fallback));
 let favorites = read('favorites', ['Camera', 'Maps', 'Messages']);
 let widgets = read('widgets', []), hidden = read('hidden', []), heights = read('widget-heights', {});
 let appearance = read('appearance', {}), locked = read('locked', []);
+let collections = read('collections', []), stacked = read('stacked-widgets', false), stackWidget = read('stack-widget', null);
 let timer, beforeSearch = 0, filtering = false;
 const filterKey = value => value.trim().toLowerCase().normalize('NFD').replace(/\p{M}+/gu, '');
+function searchResults(entries, query) {
+  const tokens = query.split(/\s+/);
+  const buckets = [[], [], [], []];
+  for (const item of entries) {
+    const name = filterKey(item[0]);
+    const rank = name === query ? 0 : name.startsWith(query) ? 1 : name.includes(query) ? 2 : tokens.every(word => name.includes(word)) ? 3 : -1;
+    if (rank >= 0) buckets[rank].push(item);
+  }
+  return buckets.flat();
+}
 function save() {
-  for (const [key, value] of Object.entries({favorites, widgets, hidden, 'widget-heights': heights, appearance, locked})) {
+  for (const [key, value] of Object.entries({favorites, widgets, hidden, 'widget-heights': heights, appearance, locked, collections, 'stacked-widgets': stacked, 'stack-widget': stackWidget})) {
     localStorage.setItem(`still-${key}`, JSON.stringify(value));
   }
 }
@@ -75,24 +86,32 @@ function appMenu(name, inFavorites) {
   if (inFavorites) items.push(...moves(favorites, name, favorites.filter(app => !hidden.includes(app))));
   menu(name, items);
 }
-const appearanceMax = {iconStyle:2, iconSize:2, iconShape:3, fontSize:3, fontShape:3, railSide:1, theme:1};
+const appearanceMax = {iconStyle:3, iconSize:2, iconShape:3, fontSize:3, fontShape:3, railSide:1, theme:1};
 function backupMenu() {
-  menu('Backup and restore', [['Export settings', () => {
-    const backup = JSON.stringify({format:'still-preview-settings', version:1, favorites, hidden, appearance}, null, 2);
+  const download = preset => {
+    const backup = JSON.stringify(preset ? {format:'still-preview-appearance', version:1, appearance}
+      : {format:'still-preview-settings', version:2, favorites, hidden, appearance, collections, stacked}, null, 2);
     const url = URL.createObjectURL(new Blob([backup], {type:'application/json'}));
-    const link = document.createElement('a'); link.href = url; link.download = 'still-preview-settings.json'; link.click();
+    const link = document.createElement('a'); link.href = url; link.download = preset ? 'still-preview-appearance.json' : 'still-preview-settings.json'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }], ['Import settings', () => $('backup-file').click()]], hint('Preview backups are separate from Android backups. Widgets and App Lock stay unchanged.'));
+  };
+  menu('Backup and restore', [['Export settings', () => download(false)], ['Export appearance preset', () => download(true)],
+    ['Import backup or preset', () => $('backup-file').click()]], hint('Preview backups are separate from Android backups. Widgets and App Lock stay unchanged.'));
 }
 $('backup-file').onchange = async event => {
   const file = event.target.files[0]; event.target.value = '';
   if (!file) return;
-  let backup;
+  let backup, preset, extended;
   try {
     if (file.size > 1024 * 1024) throw new Error();
     backup = JSON.parse(await file.text());
-    if (backup?.format !== 'still-preview-settings' || backup.version !== 1) throw new Error();
-    for (const key of ['favorites', 'hidden']) {
+    preset = backup?.format === 'still-preview-appearance' && backup.version === 1;
+    extended = backup?.format === 'still-preview-settings' && backup.version === 2;
+    if (!preset && !extended && !(backup?.format === 'still-preview-settings' && backup.version === 1)) throw new Error();
+    if (extended && (typeof backup.stacked !== 'boolean' || !Array.isArray(backup.collections) || backup.collections.length > 12 ||
+      !backup.collections.every(group => typeof group?.name === 'string' && group.name.trim() && group.name.length <= 40 &&
+        Array.isArray(group.apps) && group.apps.every(name => icons.has(name))))) throw new Error();
+    for (const key of preset ? [] : ['favorites', 'hidden']) {
       if (!Array.isArray(backup[key]) || !backup[key].every(name => icons.has(name))) throw new Error();
     }
     if (!backup.appearance || Array.isArray(backup.appearance) || typeof backup.appearance !== 'object') throw new Error();
@@ -102,9 +121,15 @@ $('backup-file').onchange = async event => {
   } catch {
     menu('Could not restore settings', [], hint('Choose a valid Still preview backup.')); return;
   }
-  menu('Restore settings?', [['Restore', () => {
-    clearUndo(); favorites = [...new Set(backup.favorites)]; hidden = [...new Set(backup.hidden)]; appearance = backup.appearance; update();
-  }]], hint('Replace Favorites, hidden apps and appearance? Widgets and App Lock stay unchanged.'));
+  menu(preset ? 'Apply appearance preset?' : 'Restore settings?', [[preset ? 'Apply' : 'Restore', () => {
+    clearUndo();
+    if (!preset) { favorites = [...new Set(backup.favorites)]; hidden = [...new Set(backup.hidden)]; }
+    if (extended) {
+      collections = backup.collections.map(({name, apps}) => ({name, apps: [...new Set(apps)]})); stacked = backup.stacked;
+    }
+    appearance = backup.appearance; update();
+  }]], hint(preset ? 'Apply theme, icons, fonts and rail settings only?'
+    : `Replace Favorites, hidden apps and appearance${extended ? ', plus Collections and the widget stack preference' : ''}? Widgets and App Lock stay unchanged.`));
 };
 function favoriteMenu(name) {
   const entries = moves(favorites, name, favorites.filter(app => !hidden.includes(app)));
@@ -119,7 +144,23 @@ function widgetSettings() {
   menu('Widgets', [['Add widget', () => menu('Add widget', [...demoWidgets.keys()].filter(name => !widgets.includes(name)).map(name => [name, () => {
     widgets.push(name); update(); widgetSettings();
   }]), widgets.length >= demoWidgets.size ? hint('All demo widgets are already added.') : undefined)],
+  [stacked ? 'Show widgets separately' : 'Stack widgets', () => { stacked = !stacked; update(); }],
   ...widgets.map(name => [`Manage ${name}`, () => widgetMenu(name)])]);
+}
+function previewTheme() {
+  let selected = appearance.theme ?? 0;
+  const controls = document.createElement('div'); controls.className = 'theme-controls';
+  const mock = document.createElement('div'); mock.className = 'theme-sample';
+  const time = document.createElement('strong'); time.textContent = '9:41';
+  const apps = document.createElement('p'); apps.textContent = '★ Favorites\nCamera\nMessages';
+  mock.append(time, apps);
+  const choices = ['White', 'Black'].map((name, index) => button(name, () => { selected = index; redraw(); }));
+  const redraw = () => {
+    mock.dataset.theme = selected === 1 ? 'black' : 'white';
+    choices.forEach((option,index) => option.setAttribute('aria-pressed', index === selected));
+  };
+  controls.append(...choices, mock); redraw();
+  menu('Preview theme', [['Apply', () => { appearance.theme = selected; update(); }], ['Cancel', () => {}]], controls);
 }
 const settingCards = {
   Theme: ['◐', () => appearance.theme === 1 ? 'Black palette' : 'White palette'],
@@ -144,7 +185,7 @@ function settingsPage(title, entries, subtitle) {
 }
 function launcherSettings() {
   settingsPage('Launcher settings', [
-    ['Theme', () => appearanceSetting('Theme', 'theme', ['White', 'Black'], 0, launcherSettings)],
+    ['Theme', previewTheme],
     ['Icons', iconSettings],
     ['Fonts', fontSettings],
     ['App list', listSettings],
@@ -155,7 +196,7 @@ function launcherSettings() {
 function settingsGroup(title, entries) { settingsPage(title, [...entries, ['Back', launcherSettings]], 'Customize your launcher'); }
 function iconSettings() {
   settingsGroup('Icons', [
-    ['Icon style', () => appearanceSetting('Icon style', 'iconStyle', ['Original', 'Monochrome', 'Initials'], 0, iconSettings)],
+    ['Icon style', () => appearanceSetting('Icon style', 'iconStyle', ['Original', 'Monochrome', 'Initials', 'Dots'], 0, iconSettings)],
     ['Icon size', () => appearanceSetting('Icon size', 'iconSize', ['Small', 'Default', 'Large'], 1, iconSettings)],
     ['Icon shape', () => appearanceSetting('Icon shape', 'iconShape', ['Original', 'Rounded square', 'Circle', 'Square'], 0, iconSettings)],
   ]);
@@ -179,12 +220,49 @@ function privacySettings() {
 }
 function listSettings() {
   settingsGroup('App list', [
+    ['Collections', manageCollections],
     ['Alphabet side', () => appearanceSetting('Alphabet side', 'railSide', ['Right', 'Left'], 0, listSettings)],
     ['Reorder Favorites', () => {
       const visible = favorites.filter(name => !hidden.includes(name));
       menu('Reorder Favorites', visible.map(name => [name, () => favoriteMenu(name)]), visible.length ? undefined : hint('Star apps to add them to Favorites.'));
     }],
   ]);
+}
+function manageCollections() {
+  const entries = collections.length < 12 ? [['New collection', () => editCollection(-1)]] : [];
+  for (let i = 0; i < collections.length; i++) entries.push([collections[i].name, () => menu(collections[i].name, [
+    ['Edit', () => editCollection(i)], ['Remove collection', () => menu('Remove collection?', [['Remove', () => {
+      collections.splice(i, 1); update(); manageCollections();
+    }]], hint('Its apps stay installed.'))],
+  ])]);
+  menu('Collections', entries);
+}
+function editCollection(index) {
+  const item = collections[index] ?? {name:'', apps:[]}, chosen = new Set(item.apps);
+  const content = document.createElement('div');
+  const name = document.createElement('input'); name.type = 'text'; name.maxLength = 40; name.value = item.name;
+  name.className = 'collection-name'; name.placeholder = 'Collection name'; name.setAttribute('aria-label', 'Collection name');
+  const apps = document.createElement('div'); apps.className = 'app-choices';
+  for (const [app] of all) if (!hidden.includes(app)) {
+    const label = document.createElement('label'), check = document.createElement('input');
+    check.type = 'checkbox'; check.checked = chosen.has(app);
+    check.onchange = () => { if (check.checked) chosen.add(app); else chosen.delete(app); };
+    label.append(check, app); apps.append(label);
+  }
+  content.append(name, apps);
+  menu(index < 0 ? 'New collection' : 'Edit collection', [], content);
+  const error = hint(''); error.setAttribute('role', 'status'); content.append(error);
+  $('menu-items').append(button('Save collection', () => {
+    const title = name.value.trim();
+    if (!title || !chosen.size) { error.textContent = 'Enter a name and choose at least one app.'; return; }
+    const group = {name:title, apps:[...chosen]};
+    if (index < 0) collections.push(group); else collections[index] = group;
+    dialog.close(); update(); manageCollections();
+  }));
+}
+function openCollection(group) {
+  const visible = group.apps.filter(name => icons.has(name) && !hidden.includes(name));
+  menu(group.name, visible.map(name => [name, () => openDemoTarget(name)]), visible.length ? undefined : hint('No visible apps in this collection.'));
 }
 function appearanceSetting(title, key, labels, fallback, parent) {
   const checked = appearance[key] ?? fallback;
@@ -221,7 +299,7 @@ function makeRow(name, icon, inFavorites = false) {
   open.dataset.favoriteRow = inFavorites ? 'yes' : 'no';
   open.className = 'app';
   const glyph = document.createElement('span'); glyph.className = 'icon';
-  glyph.textContent = appearance.iconStyle === 2 ? [...name][0] : icon;
+  glyph.textContent = appearance.iconStyle === 3 ? '●' : appearance.iconStyle === 2 ? [...name][0] : icon;
   glyph.style.setProperty('--icon-hue', String(name.charCodeAt(0) * 37 % 360));
   glyph.setAttribute('aria-hidden', 'true'); open.prepend(glyph);
 
@@ -263,6 +341,31 @@ function widgetRow(name) {
   title.append(label, button('⋯', () => widgetMenu(name), `Manage ${name} widget`));
   widget.append(title, value); return widget;
 }
+function widgetStack(visible) {
+  const panel = document.createElement('section'); panel.className = 'widget-stack';
+  const controls = document.createElement('div'); controls.className = 'stack-controls';
+  const status = document.createElement('span'); status.setAttribute('aria-live', 'polite');
+  const surface = document.createElement('div'); surface.className = 'stack-swipe';
+  let index = Math.max(0, visible.indexOf(stackWidget)), pointer;
+  function flip(step) {
+    index = (index + step + visible.length) % visible.length;
+    if (step) { stackWidget = visible[index]; save(); }
+    status.textContent = `Widget ${index + 1} / ${visible.length}`;
+    surface.replaceChildren(widgetRow(visible[index]));
+  }
+  controls.append(button('‹', () => flip(-1), 'Previous widget'), status, button('›', () => flip(1), 'Next widget'));
+  surface.onpointerdown = event => {
+    if (!event.isPrimary || event.button !== 0 || event.target.closest('button')) return;
+    pointer = [event.clientX, event.clientY, event.pointerId]; surface.setPointerCapture(event.pointerId);
+  };
+  surface.onpointercancel = () => { pointer = undefined; };
+  surface.onpointerup = event => {
+    if (!pointer || event.pointerId !== pointer[2]) return;
+    const dx = event.clientX - pointer[0], dy = event.clientY - pointer[1]; pointer = undefined;
+    if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.4) flip(dx < 0 ? 1 : -1);
+  };
+  panel.append(controls, surface); flip(0); return panel;
+}
 let railPointer = null, activeLetter = null, hideBubbleTimer;
 const bubble = $('letter-bubble'), reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const railHeadings = new WeakMap();
@@ -279,6 +382,8 @@ function selectLetter(letter, animate = false) {
   list.scrollTo({top, behavior: animate && !reducedMotion.matches ? 'smooth' : 'instant'});
   activeLetter?.classList.remove('active-letter'); activeLetter = letter;
   letter.classList.add('active-letter'); bubble.textContent = letter.textContent;
+  const area = bubble.parentElement.getBoundingClientRect(), anchor = letter.getBoundingClientRect();
+  bubble.style.top = `${Math.max(0, Math.min(area.height - 58, anchor.top - area.top + (anchor.height - 58) / 2))}px`;
   bubble.classList.add('visible');
   if (!reducedMotion.matches) bubble.animate([{transform:'scale(.84)'}, {transform:'scale(1)'}], {duration:135, easing:'ease-out'});
 }
@@ -329,7 +434,7 @@ function render(y) {
   rail.hidden = Boolean(query);
   const visible = all.filter(([name]) => !hidden.includes(name));
   if (query) {
-    const results = visible.filter(([name]) => filterKey(name).includes(query));
+    const results = searchResults(visible, query);
     const group = section('SEARCH RESULTS');
     for (const [name, icon] of results) group.append(makeRow(name, icon));
     if (!results.length) group.append(hint('No matching apps.'));
@@ -339,7 +444,13 @@ function render(y) {
     const pinned = favorites.filter(name => icons.has(name) && !hidden.includes(name));
     for (const name of pinned) group.append(makeRow(name, icons.get(name), true));
     if (!pinned.length) group.append(hint('Tap an app’s star to pin it here.'));
-    for (const name of widgets) if (demoWidgets.has(name)) group.append(widgetRow(name));
+    for (const item of collections) {
+      const entry = button(`▦   ${item.name}  ›`, () => openCollection(item), `Open collection ${item.name}`);
+      entry.className = 'collection-row'; group.append(entry);
+    }
+    const visibleWidgets = widgets.filter(name => demoWidgets.has(name));
+    if (stacked && visibleWidgets.length > 1) group.append(widgetStack(visibleWidgets));
+    else for (const name of visibleWidgets) group.append(widgetRow(name));
     for (const [letter, entries] of Object.entries(apps)) {
       const shown = entries.filter(([name]) => !hidden.includes(name));
       if (!shown.length) continue;
@@ -362,7 +473,7 @@ search.addEventListener('keydown', event => {
   const query = filterKey(search.value);
   if (event.key !== 'Enter' || event.isComposing || event.repeat || !query) return;
   event.preventDefault();
-  const match = all.find(([name]) => !hidden.includes(name) && filterKey(name).includes(query));
+  const match = searchResults(all.filter(([name]) => !hidden.includes(name)), query)[0];
   if (match) { search.blur(); openDemoTarget(match[0]); }
 });
 $('clear-search').onclick = () => { search.value = ''; searchChanged(); search.focus({preventScroll: true}); };
@@ -483,3 +594,5 @@ function chatSettings() {
 }
 $('chats').onclick = showChats;
 $('home-clock').onclick = () => openDemoTarget('Clock');
+
+$('home-date').onclick = () => openDemoTarget('Calendar');

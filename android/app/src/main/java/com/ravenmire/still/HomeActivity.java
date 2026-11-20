@@ -44,14 +44,14 @@ public class HomeActivity extends Activity {
     private LinearLayout root, list, index;
     private AppWidgetHost host;
     private AppWidgetManager widgets;
-    private int pending = -1;
+    private int pending = -1, pendingRecovery = -1;
     private String pendingLaunch, pendingShortcut;
     private LinearLayout undoBar, appArea;
     private Runnable undoAction;
     private final Runnable expireUndo = this::dismissUndo;
-    private static final int EXPORT_SETTINGS = 23, IMPORT_SETTINGS = 24;
+    private static final int EXPORT_SETTINGS = 23, IMPORT_SETTINGS = 24, EXPORT_LOOK = 25, IMPORT_LOOK = 26;
     private static final String[] APPEARANCE = {"iconStyle", "iconSize", "iconShape", "fontSize", "fontShape", "railSide", "theme"};
-    private static final int[] DEFAULTS = {0, 1, 0, 1, 0, 0, 0}, MAXIMUMS = {2, 2, 3, 3, 3, 1, 1};
+    private static final int[] DEFAULTS = {0, 1, 0, 1, 0, 0, 0}, MAXIMUMS = {3, 2, 3, 3, 3, 1, 1};
     private boolean pendingLockSettings;
     private static final int CONFIRM_LAUNCH = 21, CONFIRM_LOCK_SETTINGS = 22;
     private boolean welcome;
@@ -63,7 +63,8 @@ public class HomeActivity extends Activity {
                 Date now = new Date();
                 String time = android.text.format.DateFormat.getTimeFormat(HomeActivity.this).format(now);
                 clock.setText(time); clock.setContentDescription(time + ", open Clock");
-                date.setText(android.text.format.DateFormat.format("EEEE, MMMM d", now).toString().toUpperCase(Locale.getDefault()));
+                String day = android.text.format.DateFormat.format("EEEE, MMMM d", now).toString().toUpperCase(Locale.getDefault());
+                date.setText(day); date.setContentDescription(day + ", open Calendar");
             }
             handler.postDelayed(this, 15000);
         }
@@ -84,6 +85,7 @@ public class HomeActivity extends Activity {
         widgets = AppWidgetManager.getInstance(this);
         if (state != null) {
             pending = state.getInt("pending", -1);
+            pendingRecovery = state.getInt("pendingRecovery", -1);
             pendingLaunch = state.getString("pendingLaunch");
             pendingShortcut = state.getString("pendingShortcut");
             pendingLockSettings = state.getBoolean("pendingLockSettings");
@@ -98,6 +100,7 @@ public class HomeActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putInt("pending", pending);
+        state.putInt("pendingRecovery", pendingRecovery);
         state.putString("pendingLaunch", pendingLaunch);
         state.putString("pendingShortcut", pendingShortcut);
         state.putBoolean("pendingLockSettings", pendingLockSettings);
@@ -168,7 +171,7 @@ public class HomeActivity extends Activity {
         welcome = false; base();
         FrameLayout hero = heroFrame();
         LinearLayout face = column(); face.setPadding(dp(18), dp(13), dp(18), dp(9)); hero.addView(face);
-        date = text("", 11, 0xffe0e2ff); date.setLetterSpacing(.15f); face.addView(date);
+        date = text("", 11, 0xffe0e2ff); date.setLetterSpacing(.15f); date.setFocusable(true); date.setOnClickListener(v -> openCalendar()); face.addView(date);
         clock = text("", 56, 0xffffffff); clock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         clock.setLetterSpacing(-.06f); clock.setSingleLine(true);
         clock.setAutoSizeTextTypeUniformWithConfiguration(26, 56, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
@@ -238,7 +241,8 @@ public class HomeActivity extends Activity {
             String filter = searchKey(query);
             if (!filter.isEmpty()) {
                 Set<String> hidden = saved("hidden");
-                for (ResolveInfo app : apps) if (matches(app, filter, hidden)) { openApp(app); return true; }
+                List<ResolveInfo> results = searchResults(filter, hidden);
+                if (!results.isEmpty()) { openApp(results.get(0)); return true; }
             }
             dismissKeyboard(); return true;
         });
@@ -256,15 +260,21 @@ public class HomeActivity extends Activity {
         placeRail();
         undoBar = new LinearLayout(this); undoBar.setVisibility(View.GONE); root.addView(undoBar);
         dismissUndo();
-        emptyArea(root); emptyArea(list); emptyArea(date); emptyArea(title);
+        emptyArea(root); emptyArea(list); emptyArea(title);
         root.requestFocus();
         reloadApps();
         populate(y);
     }
     private void openClock() {
-        Intent alarms = new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS);
-        ResolveInfo target = getPackageManager().resolveActivity(alarms, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
-        List<ResolveInfo> handlers = getPackageManager().queryIntentActivities(alarms, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+        openTool(new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS), "Clock");
+    }
+    private void openCalendar() {
+        openTool(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR), "Calendar");
+    }
+    private void openTool(Intent intent, String name) {
+        Intent targetIntent = intent.getSelector() == null ? intent : intent.getSelector();
+        ResolveInfo target = getPackageManager().resolveActivity(targetIntent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+        List<ResolveInfo> handlers = getPackageManager().queryIntentActivities(targetIntent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
         if (!handlers.isEmpty()) {
             ResolveInfo chosen = handlers.get(0);
             if (target != null && target.activityInfo != null) for (ResolveInfo handler : handlers) {
@@ -273,13 +283,13 @@ public class HomeActivity extends Activity {
             String packageName = chosen.activityInfo.packageName;
             if (saved("locked").contains(packageName)) {
                 for (ResolveInfo app : apps) if (packageName.equals(app.activityInfo.packageName)) { openApp(app); return; }
-                Toast.makeText(this, "Clock is locked", Toast.LENGTH_SHORT).show(); return;
+                Toast.makeText(this, name + " is locked", Toast.LENGTH_SHORT).show(); return;
             }
-            try { startActivity(alarms.setComponent(component(chosen))); return; }
+            try { startActivity(targetIntent.setComponent(component(chosen))); return; }
             catch (ActivityNotFoundException | SecurityException ignored) { }
         }
-        for (ResolveInfo app : apps) if ("Clock".equalsIgnoreCase(label(app))) { openApp(app); return; }
-        Toast.makeText(this, "No Clock app available", Toast.LENGTH_SHORT).show();
+        for (ResolveInfo app : apps) if (name.equalsIgnoreCase(originalLabel(app))) { openApp(app); return; }
+        Toast.makeText(this, "No " + name + " app available", Toast.LENGTH_SHORT).show();
     }
 
     private void dismissKeyboard() {
@@ -306,7 +316,11 @@ public class HomeActivity extends Activity {
     private Set<String> saved(String key) { return new HashSet<>(prefs.getStringSet(key, Collections.emptySet())); }
     private void store(String key, Set<String> values) { prefs.edit().putStringSet(key, values).apply(); }
     private void refresh() { populate(scroll.getScrollY()); }
-    private String label(ResolveInfo app) { return app.loadLabel(getPackageManager()).toString(); }
+    private String originalLabel(ResolveInfo app) { return app.loadLabel(getPackageManager()).toString(); }
+    private String label(ResolveInfo app) {
+        String alias = prefs.getString("appAlias:" + key(app), null);
+        return alias == null ? originalLabel(app) : alias;
+    }
     private ComponentName component(ResolveInfo app) { return new ComponentName(app.activityInfo.packageName, app.activityInfo.name); }
     private String key(ResolveInfo app) { return component(app).flattenToString(); }
     private boolean reloadApps() {
@@ -368,7 +382,7 @@ public class HomeActivity extends Activity {
         if (!filter.isEmpty()) {
             section("SEARCH RESULTS", null, "");
             boolean any = false;
-            for (ResolveInfo app : apps) if (matches(app, filter, hidden)) {
+            for (ResolveInfo app : searchResults(filter, hidden)) {
                 row(app, favorites.contains(key(app)), false); any = true;
             }
             if (!any) list.addView(text("No matching apps", 15, moss));
@@ -380,7 +394,10 @@ public class HomeActivity extends Activity {
             orderedFavorites.removeIf(hidden::contains);
             for (String key : orderedFavorites) row(byKey.get(key), true, true);
             if (orderedFavorites.isEmpty()) list.addView(text("Star an app below to pin it here.", 14, moss));
-            for (String id : widgetOrder()) widgetRow(id);
+            addCollections();
+            List<String> widgetIds = widgetOrder();
+            if (stackWidgets() && widgetIds.size() > 1) widgetStack(widgetIds);
+            else for (String id : widgetIds) widgetRow(id, list);
 
             Set<String> seen = new HashSet<>();
             String previous = null;
@@ -394,8 +411,24 @@ public class HomeActivity extends Activity {
         }
         scroll.post(() -> scroll.scrollTo(0, y));
     }
-    private boolean matches(ResolveInfo app, String filter, Set<String> hidden) {
-        return !hidden.contains(key(app)) && searchKey(label(app)).contains(filter);
+    private List<ResolveInfo> searchResults(String filter, Set<String> hidden) {
+        List<List<ResolveInfo>> ranked = Arrays.asList(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        String[] tokens = filter.split("\\s+");
+        for (ResolveInfo app : apps) {
+            if (hidden.contains(key(app))) continue;
+            String name = searchKey(label(app));
+            int rank;
+            if (name.equals(filter)) rank = 0;
+            else if (name.startsWith(filter)) rank = 1;
+            else if (name.contains(filter)) rank = 2;
+            else if (Arrays.stream(tokens).allMatch(name::contains)) rank = 3;
+            else if (searchKey(originalLabel(app)).contains(filter) || app.activityInfo.packageName.toLowerCase(Locale.ROOT).contains(filter)) rank = 4;
+            else continue;
+            ranked.get(rank).add(app);
+        }
+        List<ResolveInfo> results = new ArrayList<>();
+        for (List<ResolveInfo> bucket : ranked) results.addAll(bucket);
+        return results;
     }
     private void placeRail() {
         int position = prefs.getInt("railSide", 0) == 1 ? 0 : 1;
@@ -450,6 +483,10 @@ public class HomeActivity extends Activity {
         List<String> labels = new ArrayList<>();
         List<Runnable> actions = new ArrayList<>();
         labels.add("Add widget"); actions.add(this::pickWidget);
+        int remaining = widgetRecovery().length();
+        if (remaining > 0) { labels.add("Recover widgets · " + remaining); actions.add(this::showWidgetRecovery); }
+        labels.add(stackWidgets() ? "Show widgets separately" : "Stack widgets");
+        actions.add(() -> { prefs.edit().putBoolean("stackWidgets", !stackWidgets()).apply(); refresh(); });
         for (String id : widgetOrder()) {
             AppWidgetProviderInfo info = widgets.getAppWidgetInfo(Integer.parseInt(id));
             if (info == null) continue;
@@ -502,16 +539,30 @@ public class HomeActivity extends Activity {
         }
     }
     private void showThemeSettings() {
-        new AlertDialog.Builder(this).setTitle("Theme").setSingleChoiceItems(new String[]{"White", "Black"}, prefs.getInt("theme", 0), (dialog, selection) -> {
-            dialog.dismiss();
-            if (selection != prefs.getInt("theme", 0)) {
-                prefs.edit().putInt("theme", selection).apply(); recreate();
-            } else showSettings();
-        }).setNegativeButton("Back", (d,w) -> showSettings()).show();
+        final int current = prefs.getInt("theme", 0);
+        LinearLayout content = column(); content.setPadding(dp(18), dp(8), dp(18), 0);
+        RadioGroup options = new RadioGroup(this); options.setOrientation(LinearLayout.HORIZONTAL);
+        RadioButton white = new RadioButton(this); white.setId(View.generateViewId()); white.setText("White"); options.addView(white);
+        RadioButton black = new RadioButton(this); black.setId(View.generateViewId()); black.setText("Black"); options.addView(black);
+        content.addView(options);
+        LinearLayout mock = column(); mock.setPadding(dp(14), dp(12), dp(14), dp(8)); content.addView(mock);
+        TextView mockClock = text("9:41", 38, 0xffffffff); mockClock.setBackground(rounded(0xff20194b, 14));
+        mockClock.setPadding(dp(13), dp(4), dp(13), dp(6)); mock.addView(mockClock);
+        TextView sample = text("★  Favorites\n\n    Camera\n\n    Messages", 15, ink); sample.setPadding(0, dp(10), 0, dp(4)); mock.addView(sample);
+        options.setOnCheckedChangeListener((group, id) -> {
+            boolean dark = id == black.getId(); mock.setBackground(rounded(dark ? 0xff000000 : 0xfff1eff7, 18));
+            sample.setTextColor(dark ? 0xfff3f5fa : 0xff202124);
+        });
+        options.check(current == 1 ? black.getId() : white.getId());
+        new AlertDialog.Builder(this).setTitle("Preview theme").setView(content).setNegativeButton("Cancel", null)
+            .setPositiveButton("Apply", (d,w) -> {
+                int selected = options.getCheckedRadioButtonId() == black.getId() ? 1 : 0;
+                if (selected != current) { prefs.edit().putInt("theme", selected).apply(); recreate(); }
+            }).show();
     }
     private void showIconSettings() {
         showSettingsGroup("Icons", Arrays.asList("Icon style", "Icon size", "Icon shape"), Arrays.asList(
-            () -> setting("Icon style", "iconStyle", new String[]{"Original", "Monochrome", "Initials"}, 0, this::showIconSettings),
+            () -> setting("Icon style", "iconStyle", new String[]{"Original", "Monochrome", "Initials", "Dots"}, 0, this::showIconSettings),
             () -> setting("Icon size", "iconSize", new String[]{"Small", "Default", "Large"}, 1, this::showIconSettings),
             () -> setting("Icon shape", "iconShape", new String[]{"Original", "Rounded square", "Circle", "Square"}, 0, this::showIconSettings)));
     }
@@ -521,8 +572,85 @@ public class HomeActivity extends Activity {
             () -> setting("Typeface", "fontShape", new String[]{"System", "Rounded", "Serif", "Monospace"}, 0, this::showFontSettings)));
     }
     private void showListSettings() {
-        showSettingsGroup("App list", Arrays.asList("Reorder Favorites", "Alphabet side"), Arrays.asList(
-            this::reorderFavorites, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0, this::showListSettings)));
+        showSettingsGroup("App list", Arrays.asList("Reorder Favorites", "Collections", "Alphabet side"), Arrays.asList(
+            this::reorderFavorites, this::manageCollections, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0, this::showListSettings)));
+    }
+    private static final class AppCollection {
+        final String name;
+        final Set<String> members;
+        AppCollection(String name, Set<String> members) { this.name = name; this.members = members; }
+    }
+    private List<AppCollection> collections() {
+        List<AppCollection> result = new ArrayList<>();
+        try {
+            JSONArray stored = new JSONArray(prefs.getString("collections", "[]"));
+            for (int i = 0; i < stored.length(); i++) {
+                JSONObject item = stored.getJSONObject(i); JSONArray ids = item.getJSONArray("apps");
+                Set<String> members = new LinkedHashSet<>();
+                for (int j = 0; j < ids.length(); j++) members.add(ids.getString(j));
+                result.add(new AppCollection(item.getString("name"), members));
+            }
+        } catch (JSONException ignored) { }
+        return result;
+    }
+    private void saveCollections(List<AppCollection> groups) {
+        JSONArray stored = new JSONArray();
+        try {
+            for (AppCollection item : groups) stored.put(new JSONObject().put("name", item.name).put("apps", new JSONArray(item.members)));
+            prefs.edit().putString("collections", stored.toString()).apply(); refresh();
+        } catch (JSONException ignored) { }
+    }
+    private void addCollections() {
+        for (AppCollection group : collections()) {
+            TextView card = action("▦   " + group.name + "  ›", () -> openCollection(group));
+            card.setContentDescription("Open collection " + group.name);
+            card.setTextColor(accent); card.setPadding(dp(10), 0, dp(10), 0);
+            card.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x284c42ca), rounded(surface, 14), null));
+            LinearLayout.LayoutParams margins = new LinearLayout.LayoutParams(-1, -2); margins.bottomMargin = dp(4); list.addView(card, margins);
+        }
+    }
+    private void openCollection(AppCollection group) {
+        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+        Set<String> hidden = saved("hidden");
+        for (ResolveInfo app : apps) if (group.members.contains(key(app)) && !hidden.contains(key(app))) {
+            labels.add(label(app) + (lockedApps.contains(app.activityInfo.packageName) ? "  🔒" : "")); actions.add(() -> openApp(app));
+        }
+        if (labels.isEmpty()) new AlertDialog.Builder(this).setTitle(group.name).setMessage("No visible apps in this collection.").setPositiveButton("Close", null).show();
+        else showMenu(group.name, labels, actions);
+    }
+    private void manageCollections() {
+        List<AppCollection> groups = collections();
+        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+        if (groups.size() < 12) { labels.add("New collection"); actions.add(() -> editCollection(groups, -1)); }
+        for (int i = 0; i < groups.size(); i++) {
+            final int position = i;
+            labels.add(groups.get(i).name); actions.add(() -> showMenu(groups.get(position).name, Arrays.asList("Edit", "Remove collection"), Arrays.asList(
+                () -> editCollection(groups, position), () -> new AlertDialog.Builder(this).setMessage("Remove this collection? Its apps stay installed.")
+                    .setNegativeButton("Cancel", null).setPositiveButton("Remove", (d,w) -> { groups.remove(position); saveCollections(groups); manageCollections(); }).show())));
+        }
+        showMenu("Collections", labels, actions);
+    }
+    private void editCollection(List<AppCollection> groups, int position) {
+        AppCollection existing = position < 0 ? new AppCollection("", Collections.emptySet()) : groups.get(position);
+        EditText name = new EditText(this); name.setSingleLine(true); name.setHint("Collection name"); name.setText(existing.name);
+        name.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(40)});
+        new AlertDialog.Builder(this).setTitle(position < 0 ? "New collection" : "Rename or edit collection").setView(name)
+            .setNegativeButton("Cancel", null).setPositiveButton("Choose apps", (d,w) -> {
+                String title = name.getText().toString().trim();
+                if (title.isEmpty()) { Toast.makeText(this, "Enter a collection name", Toast.LENGTH_SHORT).show(); return; }
+                Set<String> chosen = new LinkedHashSet<>(existing.members), hidden = saved("hidden");
+                List<ResolveInfo> candidates = new ArrayList<>(); for (ResolveInfo app : apps) if (!hidden.contains(key(app))) candidates.add(app);
+                String[] labels = new String[candidates.size()]; boolean[] checked = new boolean[labels.length];
+                for (int i = 0; i < labels.length; i++) { labels[i] = label(candidates.get(i)); checked[i] = chosen.contains(key(candidates.get(i))); }
+                new AlertDialog.Builder(this).setTitle(title).setMultiChoiceItems(labels, checked, (selection,i,on) -> {
+                    String id = key(candidates.get(i)); if (on) chosen.add(id); else chosen.remove(id);
+                }).setNegativeButton("Cancel", null).setPositiveButton("Save", (selection,button) -> {
+                    if (chosen.isEmpty()) { Toast.makeText(this, "Choose at least one app", Toast.LENGTH_SHORT).show(); return; }
+                    AppCollection item = new AppCollection(title, chosen);
+                    if (position < 0) groups.add(item); else groups.set(position, item);
+                    saveCollections(groups); manageCollections();
+                }).show();
+            }).show();
     }
     private void showPrivacySettings() {
         showSettingsGroup("Privacy", Arrays.asList("Hidden apps", "App lock"), Arrays.asList(this::showHiddenApps, this::requestLockSettings));
@@ -611,6 +739,39 @@ public class HomeActivity extends Activity {
         Toast.makeText(this, "Couldn't verify your screen lock", Toast.LENGTH_SHORT).show();
         return false;
     }
+    private void renameApp(ResolveInfo app) {
+        String pref = "appAlias:" + key(app);
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(40)});
+        field.setText(label(app)); field.setSelectAllOnFocus(true);
+        new AlertDialog.Builder(this).setTitle("Rename in Still").setMessage("This changes the name and alphabetical position in Still only.")
+            .setView(field).setNegativeButton("Cancel", null)
+            .setNeutralButton("Reset name", (d,w) -> { prefs.edit().remove(pref).apply(); reloadApps(); refresh(); })
+            .setPositiveButton("Save", (d,w) -> {
+                String alias = field.getText().toString().replaceAll("[\\p{Cc}\\p{Cf}]", "").trim();
+                if (alias.isEmpty()) { Toast.makeText(this, "Name unchanged", Toast.LENGTH_SHORT).show(); return; }
+                prefs.edit().putString(pref, alias).apply(); reloadApps(); refresh();
+            }).show();
+    }
+    private void addAppToCollection(ResolveInfo app, List<AppCollection> groups) {
+        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+        for (AppCollection group : groups) {
+            if (group.members.contains(key(app))) continue;
+            labels.add(group.name); actions.add(() -> { group.members.add(key(app)); saveCollections(groups); });
+        }
+        if (labels.isEmpty()) Toast.makeText(this, "Already in every collection", Toast.LENGTH_SHORT).show();
+        else showMenu("Add to collection", labels, actions);
+    }
+    private void hideApp(ResolveInfo app) {
+        String id = key(app);
+        Set<String> hidden = saved("hidden");
+        if (!hidden.add(id)) return;
+        store("hidden", hidden); refresh();
+        showUndo("Hidden from Still", () -> {
+            Set<String> current = saved("hidden"); current.remove(id); store("hidden", current); refresh();
+        });
+    }
     private void showAppActions(ResolveInfo app, boolean inFavorites) {
         dismissKeyboard();
         List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
@@ -618,6 +779,10 @@ public class HomeActivity extends Activity {
             try { startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.activityInfo.packageName, null))); }
             catch (ActivityNotFoundException | SecurityException ignored) { Toast.makeText(this, "App info unavailable", Toast.LENGTH_SHORT).show(); }
         });
+        labels.add("Rename in Still"); actions.add(() -> renameApp(app));
+        List<AppCollection> groups = collections();
+        if (!groups.isEmpty()) { labels.add("Add to collection"); actions.add(() -> addAppToCollection(app, groups)); }
+        labels.add("Hide from Still"); actions.add(() -> hideApp(app));
         if (inFavorites) addMoveActions(labels, actions, "favorites", favoriteOrder(), key(app), saved("hidden"));
         LauncherApps manager = getSystemService(LauncherApps.class);
         try {
@@ -651,10 +816,24 @@ public class HomeActivity extends Activity {
     }
     private void launch(ComponentName component) {
         if (component == null) return;
-        try { startActivity(Intent.makeMainActivity(component)); }
-        catch (ActivityNotFoundException | SecurityException e) {
-            Toast.makeText(this, "App is no longer available", Toast.LENGTH_SHORT).show(); reloadApps(); refresh();
+        LauncherApps launcher = getSystemService(LauncherApps.class);
+        if (launcher != null) try {
+            launcher.startMainActivity(component, android.os.Process.myUserHandle(), null, null);
+            return;
+        } catch (ActivityNotFoundException | SecurityException | IllegalStateException ignored) {
+            // Some devices or launcher entries reject LauncherApps; try the public intent path.
         }
+        try { startActivity(Intent.makeMainActivity(component)); return; }
+        catch (ActivityNotFoundException | SecurityException ignored) { }
+        String packageName = component.getPackageName();
+        Intent main = getPackageManager().getLaunchIntentForPackage(packageName);
+        if (main != null && main.getComponent() != null && packageName.equals(main.getComponent().getPackageName())
+            && !component.equals(main.getComponent())) {
+            try { startActivity(main); return; }
+            catch (ActivityNotFoundException | SecurityException ignored) { }
+        }
+        Toast.makeText(this, "Couldn't open " + chatAppName(packageName), Toast.LENGTH_SHORT).show();
+        reloadApps(); refresh();
     }
     private void addMoveActions(List<String> labels, List<Runnable> actions, String kind, List<String> order, String key, Set<String> excluded) {
         List<String> visible = new ArrayList<>(order);
@@ -670,14 +849,14 @@ public class HomeActivity extends Activity {
     private int toDp(int px) { return Math.round(px / getResources().getDisplayMetrics().density); }
     private int defaultHeight(AppWidgetProviderInfo info) { return Math.max(80, toDp(info.minHeight)); }
     private int widgetHeight(String id, AppWidgetProviderInfo info) { return prefs.getInt("widgetHeight:" + id, defaultHeight(info)); }
-    private void widgetRow(String value) {
+    private void widgetRow(String value, LinearLayout container) {
         int id = Integer.parseInt(value);
         AppWidgetProviderInfo info = widgets.getAppWidgetInfo(id);
         if (info == null) return;
         String name = info.loadLabel(getPackageManager());
         TextView edit = action(name + "  ⋯", () -> showWidgetMenu(value, info, name));
         edit.setContentDescription("Manage " + name + " widget");
-        list.addView(edit);
+        container.addView(edit);
         AppWidgetHostView view = host.createView(this, id, info);
         int height = widgetHeight(value, info);
         view.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> {
@@ -686,7 +865,46 @@ public class HomeActivity extends Activity {
                 view.updateAppWidgetSize(null, width, height, width, height);
             }
         });
-        list.addView(view, new LinearLayout.LayoutParams(-1, dp(height)));
+        container.addView(view, new LinearLayout.LayoutParams(-1, dp(height)));
+    }
+    private boolean stackWidgets() { return prefs.getBoolean("stackWidgets", false); }
+    private void widgetStack(List<String> ids) {
+        final int[] selected = {Math.max(0, ids.indexOf(prefs.getString("stackWidget", "")))};
+        LinearLayout controls = new LinearLayout(this); controls.setGravity(Gravity.CENTER_VERTICAL);
+        TextView status = text("", 13, accent); status.setGravity(Gravity.CENTER); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        LinearLayout active = column();
+        java.util.function.IntConsumer flip = step -> {
+            selected[0] = (selected[0] + step + ids.size()) % ids.size();
+            String id = ids.get(selected[0]); prefs.edit().putString("stackWidget", id).apply();
+            status.setText("Widget " + (selected[0] + 1) + " / " + ids.size());
+            active.removeAllViews(); widgetRow(id, active);
+            active.animate().cancel(); active.setTranslationX(0); active.setAlpha(1);
+            if (step != 0 && (Build.VERSION.SDK_INT < 26 || android.animation.ValueAnimator.areAnimatorsEnabled())) {
+                active.setTranslationX(dp(16) * step); active.setAlpha(.8f);
+                active.animate().translationX(0).alpha(1).setDuration(160).start();
+            }
+        };
+        TextView prev = action("‹", () -> flip.accept(-1)), next = action("›", () -> flip.accept(1));
+        prev.setContentDescription("Previous widget"); next.setContentDescription("Next widget");
+        prev.setGravity(Gravity.CENTER); next.setGravity(Gravity.CENTER);
+        controls.addView(prev, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        controls.addView(status, new LinearLayout.LayoutParams(0, dp(48), 1));
+        controls.addView(next, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        list.addView(controls);
+        FrameLayout swipe = new FrameLayout(this) {
+            float x, y;
+            @Override public boolean onInterceptTouchEvent(MotionEvent event) {
+                if (event.getActionMasked() == MotionEvent.ACTION_DOWN) { x = event.getX(); y = event.getY(); }
+                return event.getActionMasked() == MotionEvent.ACTION_MOVE && Math.abs(event.getX() - x) > dp(28)
+                    && Math.abs(event.getX() - x) > Math.abs(event.getY() - y) * 1.4f;
+            }
+            @Override public boolean onTouchEvent(MotionEvent event) {
+                if (event.getActionMasked() == MotionEvent.ACTION_UP && Math.abs(event.getX() - x) > dp(30)) flip.accept(event.getX() < x ? 1 : -1);
+                return true;
+            }
+        };
+        swipe.addView(active, new FrameLayout.LayoutParams(-1, -2)); list.addView(swipe, new LinearLayout.LayoutParams(-1, -2));
+        flip.accept(0);
     }
     private void showWidgetMenu(String id, AppWidgetProviderInfo info, String name) {
         List<String> labels = new ArrayList<>();
@@ -779,7 +997,16 @@ public class HomeActivity extends Activity {
             return;
         }
         letter.setSelected(true);
-        letterBubble.setText(letter.getText()); letterBubble.setVisibility(View.VISIBLE);
+        letterBubble.setText(letter.getText());
+        FrameLayout frame = (FrameLayout)letterBubble.getParent();
+        int[] top = new int[2], anchor = new int[2]; frame.getLocationInWindow(top); letter.getLocationInWindow(anchor);
+        FrameLayout.LayoutParams bubblePosition = (FrameLayout.LayoutParams)letterBubble.getLayoutParams();
+        boolean left = prefs.getInt("railSide", 0) == 1;
+        bubblePosition.gravity = Gravity.TOP | (left ? Gravity.LEFT : Gravity.RIGHT);
+        int size = dp(68);
+        bubblePosition.leftMargin = left ? dp(49) : 0; bubblePosition.rightMargin = left ? 0 : dp(49);
+        bubblePosition.topMargin = Math.max(0, Math.min(frame.getHeight() - size, anchor[1] - top[1] + (letter.getHeight() - size) / 2));
+        letterBubble.setLayoutParams(bubblePosition); letterBubble.setVisibility(View.VISIBLE);
         letterBubble.setAlpha(1);
         letterBubble.setScaleX(animate ? .86f : 1); letterBubble.setScaleY(animate ? .86f : 1);
         if (animate) letterBubble.animate().scaleX(1).scaleY(1).setDuration(130).start();
@@ -806,12 +1033,13 @@ public class HomeActivity extends Activity {
         boolean locked = lockedApps.contains(app.activityInfo.packageName);
         LinearLayout launchRow = new LinearLayout(this); launchRow.setGravity(Gravity.CENTER_VERTICAL);
         launchRow.setContentDescription(label(app) + (locked ? ", locked" : ""));
-        TextView open = action(label(app) + (locked ? "  🔒" : ""), () -> openApp(app));
+        TextView open = text(label(app) + (locked ? "  🔒" : ""), fontSize, ink);
+        open.setGravity(Gravity.CENTER_VERTICAL);
         launchRow.setFocusable(true);
         launchRow.setOnClickListener(v -> openApp(app));
-        android.graphics.drawable.Drawable ripple = open.getBackground();
-        open.setBackground(null); open.setClickable(false); open.setFocusable(false);
-        launchRow.setBackground(ripple);
+        android.util.TypedValue ripple = new android.util.TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
+        launchRow.setBackgroundResource(ripple.resourceId);
         open.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         open.setTextColor(ink); open.setTextSize(fontSize);
         String font = new String[]{"sans-serif", "sans-serif-rounded", "serif", "monospace"}[prefs.getInt("fontShape", 0)];
@@ -843,6 +1071,10 @@ public class HomeActivity extends Activity {
     private View appIcon(ResolveInfo app, int size) {
         int style = prefs.getInt("iconStyle", 0), shape = prefs.getInt("iconShape", 0);
         View icon;
+        if (style == 3) {
+            TextView dot = text("●", Math.max(8, size / 3), accent); dot.setGravity(Gravity.CENTER);
+            dot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); return dot;
+        }
         if (style == 2) {
             String name = label(app).trim();
             String initial = name.isEmpty() ? "?" : new String(Character.toChars(name.codePointAt(0))).toUpperCase(Locale.getDefault());
@@ -862,6 +1094,34 @@ public class HomeActivity extends Activity {
         }
         return icon;
     }
+    private JSONArray widgetRecovery() {
+        try { return new JSONArray(prefs.getString("widgetRecovery", "[]")); }
+        catch (JSONException ignored) { return new JSONArray(); }
+    }
+    private void showWidgetRecovery() {
+        JSONArray queue = widgetRecovery();
+        Map<String, AppWidgetProviderInfo> providers = new HashMap<>();
+        for (AppWidgetProviderInfo info : widgets.getInstalledProviders()) providers.put(info.provider.flattenToString(), info);
+        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+        for (int i = 0; i < queue.length(); i++) {
+            JSONObject entry = queue.optJSONObject(i);
+            if (entry == null) continue;
+            int slot = i;
+            ComponentName component = ComponentName.unflattenFromString(entry.optString("provider"));
+            AppWidgetProviderInfo info = component == null ? null : providers.get(component.flattenToString());
+            String name = info == null ? entry.optString("provider").split("/", 2)[0] + " · unavailable" : info.loadLabel(getPackageManager());
+            labels.add((i + 1) + ". " + name);
+            actions.add(() -> new AlertDialog.Builder(this).setTitle(name)
+                .setMessage(info == null ? "Install the widget’s app before trying again." : "Re-add this widget? Android may ask for permission and the widget may need to be configured again.")
+                .setNeutralButton("Skip", (d,w) -> {
+                    if (pending != -1) return;
+                    queue.remove(slot); prefs.edit().putString("widgetRecovery", queue.toString()).apply(); showWidgetRecovery();
+                }).setNegativeButton("Back", (d,w) -> showWidgetRecovery())
+                .setPositiveButton(info == null ? "OK" : "Re-add", (d,w) -> { if (info != null) bindWidget(info, slot); }).show());
+        }
+        if (labels.isEmpty()) { showWidgets(); return; }
+        showMenu("Recover widgets in this order", labels, actions);
+    }
     private void pickWidget() {
         List<AppWidgetProviderInfo> options = new ArrayList<>(widgets.getInstalledProviders());
         options.sort(Comparator.comparing(p -> p.loadLabel(getPackageManager()), Collator.getInstance()));
@@ -870,13 +1130,15 @@ public class HomeActivity extends Activity {
         for (int i = 0; i < names.length; i++) names[i] = options.get(i).loadLabel(getPackageManager());
         new AlertDialog.Builder(this).setTitle("Add widget").setItems(names, (d,i) -> bindWidget(options.get(i))).setNegativeButton("Cancel", null).show();
     }
-    private void bindWidget(AppWidgetProviderInfo info) {
+    private void bindWidget(AppWidgetProviderInfo info) { bindWidget(info, -1); }
+    private void bindWidget(AppWidgetProviderInfo info, int recovery) {
         if (pending != -1) return;
+        pendingRecovery = recovery;
         pending = host.allocateAppWidgetId();
         if (widgets.bindAppWidgetIdIfAllowed(pending, info.provider)) configureWidget();
         else {
             Intent intent = new Intent(AppWidgetManager.ACTION_APPWIDGET_BIND).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pending).putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider);
-            try { startActivityForResult(intent, 11); } catch (ActivityNotFoundException e) { finishWidget(false); }
+            try { startActivityForResult(intent, 11); } catch (ActivityNotFoundException | SecurityException e) { finishWidget(false); }
         }
     }
     private void configureWidget() {
@@ -888,9 +1150,29 @@ public class HomeActivity extends Activity {
     }
     private void finishWidget(boolean accepted) {
         if (pending == -1) return;
-        if (accepted) { Set<String> ids = saved("widgets"); ids.add(Integer.toString(pending)); store("widgets", ids); }
-        else host.deleteAppWidgetId(pending);
-        pending = -1; refresh();
+        if (accepted) {
+            String id = Integer.toString(pending);
+            List<String> order = widgetOrder(); order.add(id);
+            Set<String> ids = saved("widgets"); ids.add(id);
+            android.content.SharedPreferences.Editor edit = prefs.edit().putStringSet("widgets", ids)
+                .putString("widgetsOrder", String.join("\n", order));
+            JSONArray queue = widgetRecovery();
+            JSONObject entry = queue.optJSONObject(pendingRecovery);
+            AppWidgetProviderInfo info = widgets.getAppWidgetInfo(pending);
+            if (entry != null && info != null && info.provider.flattenToString().equals(entry.optString("provider"))) {
+                if ((info.resizeMode & AppWidgetProviderInfo.RESIZE_VERTICAL) != 0) {
+                    int min = Math.max(48, info.minResizeHeight > 0 ? toDp(info.minResizeHeight) : defaultHeight(info));
+                    int max = Math.max(min, defaultHeight(info) + 240);
+                    if (Build.VERSION.SDK_INT >= 31 && info.maxResizeHeight > 0) max = Math.max(min, toDp(info.maxResizeHeight));
+                    edit.putInt("widgetHeight:" + id, Math.max(min, Math.min(max, entry.optInt("height", defaultHeight(info)))));
+                }
+                queue.remove(pendingRecovery); edit.putString("widgetRecovery", queue.toString());
+            }
+            edit.apply();
+        } else host.deleteAppWidgetId(pending);
+        boolean recovering = pendingRecovery >= 0;
+        pending = -1; pendingRecovery = -1; refresh();
+        if (accepted && recovering && widgetRecovery().length() > 0) showWidgetRecovery();
     }
     private boolean chatAllowed(String app) {
         if (!ChatNotifications.isMessagingApp(this, app) || saved("locked").contains(app) || saved("chatExcluded").contains(app)) return false;
@@ -1036,20 +1318,37 @@ public class HomeActivity extends Activity {
             .setNegativeButton("Cancel", null).setPositiveButton("Save", (d,w) -> { store("chatExcluded", excluded); showChats(); }).show();
     }
     private void backupMenu() {
-        showMenu("Backup and restore", Arrays.asList("Export settings", "Import settings"), Arrays.asList(
-            () -> startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                .setType("application/json").putExtra(Intent.EXTRA_TITLE, "still-settings.json"), EXPORT_SETTINGS),
-            () -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                .setType("application/json"), IMPORT_SETTINGS)));
+        showMenu("Backup and restore", Arrays.asList("Export settings", "Import settings", "Export appearance preset", "Import appearance preset"), Arrays.asList(
+            () -> settingsDocument(true, false), () -> settingsDocument(false, false),
+            () -> settingsDocument(true, true), () -> settingsDocument(false, true)));
     }
-    private void exportSettings(Uri uri) throws IOException, JSONException {
-        JSONObject backup = new JSONObject(); backup.put("format", "still-settings"); backup.put("version", 1);
+    private void settingsDocument(boolean export, boolean appearanceOnly) {
+        Intent intent = new Intent(export ? Intent.ACTION_CREATE_DOCUMENT : Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json");
+        if (export) intent.putExtra(Intent.EXTRA_TITLE, appearanceOnly ? "still-appearance.json" : "still-settings.json");
+        startActivityForResult(intent, appearanceOnly ? (export ? EXPORT_LOOK : IMPORT_LOOK) : (export ? EXPORT_SETTINGS : IMPORT_SETTINGS));
+    }
+    private void exportSettings(Uri uri, boolean appearanceOnly) throws IOException, JSONException {
+        JSONObject backup = new JSONObject().put("format", appearanceOnly ? "still-appearance" : "still-settings")
+            .put("version", appearanceOnly ? 1 : 3);
         JSONObject looks = new JSONObject();
         for (int i = 0; i < APPEARANCE.length; i++) looks.put(APPEARANCE[i], prefs.getInt(APPEARANCE[i], DEFAULTS[i]));
         backup.put("appearance", looks);
-        List<String> favorites = favoriteOrder();
-        for (String id : new TreeSet<>(saved("favorites"))) if (!favorites.contains(id)) favorites.add(id);
-        backup.put("favorites", new JSONArray(favorites)); backup.put("hidden", new JSONArray(new TreeSet<>(saved("hidden"))));
+        if (!appearanceOnly) {
+            List<String> favorites = favoriteOrder();
+            for (String id : new TreeSet<>(saved("favorites"))) if (!favorites.contains(id)) favorites.add(id);
+            JSONArray recipes = new JSONArray();
+            for (String id : widgetOrder()) {
+                AppWidgetProviderInfo info = widgets.getAppWidgetInfo(Integer.parseInt(id));
+                if (info != null && recipes.length() < 256) recipes.put(new JSONObject().put("provider", info.provider.flattenToString())
+                    .put("height", Math.min(10000, Math.max(1, widgetHeight(id, info)))));
+            }
+            JSONArray queued = widgetRecovery();
+            for (int i = 0; i < queued.length() && recipes.length() < 256; i++) recipes.put(queued.getJSONObject(i));
+            backup.put("widgetLayout", recipes);
+            backup.put("favorites", new JSONArray(favorites)).put("hidden", new JSONArray(new TreeSet<>(saved("hidden"))))
+                .put("collections", new JSONArray(prefs.getString("collections", "[]"))).put("stackWidgets", stackWidgets());
+        }
         try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
             if (out == null) throw new IOException("Backup file unavailable");
             out.write(backup.toString(2).getBytes(StandardCharsets.UTF_8));
@@ -1068,7 +1367,7 @@ public class HomeActivity extends Activity {
         }
         return new ArrayList<>(result);
     }
-    private void importSettings(Uri uri) throws IOException, JSONException {
+    private void importSettings(Uri uri, boolean appearanceOnly) throws IOException, JSONException {
         JSONObject backup;
         try (InputStream in = getContentResolver().openInputStream(uri); ByteArrayOutputStream data = new ByteArrayOutputStream()) {
             if (in == null) throw new IOException("Backup file unavailable");
@@ -1079,8 +1378,38 @@ public class HomeActivity extends Activity {
             }
             backup = new JSONObject(data.toString("UTF-8"));
         }
-        if (!"still-settings".equals(backup.get("format")) || !Integer.valueOf(1).equals(backup.get("version"))) throw new JSONException("Unsupported backup format");
-        List<String> favorites = backupApps(backup, "favorites"), hidden = backupApps(backup, "hidden");
+        Object version = backup.get("version");
+        boolean hasWidgets = !appearanceOnly && Integer.valueOf(3).equals(version);
+        boolean extended = hasWidgets || (!appearanceOnly && Integer.valueOf(2).equals(version));
+        JSONArray recipes = new JSONArray();
+        if (hasWidgets) {
+            JSONArray incoming = backup.getJSONArray("widgetLayout");
+            if (incoming.length() > 256) throw new JSONException("Too many widgets");
+            for (int i = 0; i < incoming.length(); i++) {
+                JSONObject entry = incoming.getJSONObject(i);
+                Object provider = entry.get("provider"), height = entry.get("height");
+                if (!(provider instanceof String) || ((String)provider).length() > 512
+                    || !((String)provider).matches("[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+")
+                    || !(height instanceof Integer) || (int)height < 1 || (int)height > 10000) throw new JSONException("Invalid widget entry");
+                recipes.put(new JSONObject().put("provider", ComponentName.unflattenFromString((String)provider).flattenToString()).put("height", height));
+            }
+        }
+        if (!(appearanceOnly ? "still-appearance" : "still-settings").equals(backup.get("format"))
+            || (!extended && !Integer.valueOf(1).equals(version))) throw new JSONException("Unsupported backup format");
+        List<String> favorites = appearanceOnly ? Collections.emptyList() : backupApps(backup, "favorites");
+        List<String> hidden = appearanceOnly ? Collections.emptyList() : backupApps(backup, "hidden");
+        JSONArray groups = new JSONArray();
+        if (extended) {
+            JSONArray incoming = backup.getJSONArray("collections");
+            if (incoming.length() > 12 || !(backup.get("stackWidgets") instanceof Boolean)) throw new JSONException("Invalid layout settings");
+            for (int i = 0; i < incoming.length(); i++) {
+                JSONObject group = incoming.getJSONObject(i);
+                Object name = group.get("name");
+                if (!(name instanceof String) || ((String)name).trim().isEmpty() || ((String)name).length() > 40)
+                    throw new JSONException("Invalid collection name");
+                groups.put(new JSONObject().put("name", name).put("apps", new JSONArray(backupApps(group, "apps"))));
+            }
+        }
         JSONObject looks = backup.getJSONObject("appearance");
         int[] values = new int[APPEARANCE.length];
         for (int i = 0; i < APPEARANCE.length; i++) {
@@ -1088,11 +1417,19 @@ public class HomeActivity extends Activity {
             if (!(value instanceof Integer) || (int)value < 0 || (int)value > MAXIMUMS[i]) throw new JSONException("Invalid appearance value");
             values[i] = (int)value;
         }
-        new AlertDialog.Builder(this).setTitle("Restore settings?")
-            .setMessage("Replace Favorites, hidden apps, and appearance with this backup? Widgets and App Lock will stay unchanged.")
-            .setNegativeButton("Cancel", null).setPositiveButton("Restore", (d,w) -> {
-                android.content.SharedPreferences.Editor edit = prefs.edit().putStringSet("favorites", new HashSet<>(favorites))
+        if (hasWidgets && pending != -1) throw new IOException("Finish adding the current widget before importing");
+        String summary = appearanceOnly ? "Use this preset’s " + (values[values.length - 1] == 0 ? "White" : "Black")
+            + " theme, icons, fonts, and rail side? Your apps and widgets stay unchanged."
+            : "Replace Favorites, hidden apps, and appearance" + (extended ? ", plus Collections and the widget stack preference" : "")
+            + "? Installed widgets and App Lock stay unchanged."
+            + (hasWidgets ? " This replaces the recovery list. To re-add widgets, open Widgets → Recover widgets." : "");
+        new AlertDialog.Builder(this).setTitle(appearanceOnly ? "Apply appearance preset?" : "Restore settings?")
+            .setMessage(summary).setNegativeButton("Cancel", null).setPositiveButton(appearanceOnly ? "Apply" : "Restore", (d,w) -> {
+                android.content.SharedPreferences.Editor edit = prefs.edit();
+                if (!appearanceOnly) edit.putStringSet("favorites", new HashSet<>(favorites))
                     .putString("favoritesOrder", String.join("\n", favorites)).putStringSet("hidden", new HashSet<>(hidden));
+                if (hasWidgets) edit.putString("widgetRecovery", recipes.toString());
+                if (extended) edit.putString("collections", groups.toString()).putBoolean("stackWidgets", backup.optBoolean("stackWidgets"));
                 for (int i = 0; i < APPEARANCE.length; i++) edit.putInt(APPEARANCE[i], values[i]);
                 boolean themeChanged = prefs.getInt("theme", 0) != values[values.length - 1];
                 edit.apply(); dismissUndo();
@@ -1108,12 +1445,13 @@ public class HomeActivity extends Activity {
             String id = pendingLaunch, shortcut = pendingShortcut; pendingLaunch = null; pendingShortcut = null;
             if (id != null && result == RESULT_OK) launchTarget(ComponentName.unflattenFromString(id), shortcut);
         }
-        if ((request == EXPORT_SETTINGS || request == IMPORT_SETTINGS) && result == RESULT_OK && data != null && data.getData() != null) {
+        if ((request == EXPORT_SETTINGS || request == IMPORT_SETTINGS || request == EXPORT_LOOK || request == IMPORT_LOOK) && result == RESULT_OK && data != null && data.getData() != null) {
+            boolean exporting = request == EXPORT_SETTINGS || request == EXPORT_LOOK;
             try {
-                if (request == EXPORT_SETTINGS) { exportSettings(data.getData()); Toast.makeText(this, "Settings exported", Toast.LENGTH_SHORT).show(); }
-                else importSettings(data.getData());
+                if (exporting) { exportSettings(data.getData(), request == EXPORT_LOOK); Toast.makeText(this, "Settings exported", Toast.LENGTH_SHORT).show(); }
+                else importSettings(data.getData(), request == IMPORT_LOOK);
             } catch (IOException | JSONException | SecurityException e) {
-                Toast.makeText(this, "Couldn't " + (request == EXPORT_SETTINGS ? "export settings" : "read a valid Still backup"), Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Couldn't " + (exporting ? "export settings" : "read a valid Still backup"), Toast.LENGTH_LONG).show();
             }
         }
         if (request == CONFIRM_LOCK_SETTINGS) {

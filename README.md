@@ -28,7 +28,7 @@ On Linux x86-64 without an Android SDK installation, `android/scripts/package-ap
 - Tap **Undo** after hiding apps or removing a Favorite to restore it without opening Settings.
 - Hold an app to open its Android **App info** or one of its supported shortcuts. Shortcuts require Still to be the default Home app and the installed app to expose them.
 - Under **Launcher settings → App list → Alphabet side**, choose **Left** or **Right**.
-- **Launcher settings → Backup and restore** exports Favorites in order, hidden apps, and appearance. Import asks before replacing those settings. Widgets and App Lock stay on the device and are not included. Browser preview backups are separate from Android backups.
+- **Launcher settings → Backup and restore** exports Favorites in order, hidden apps, appearance, Collections, and the widget stacking preference. Older backups still import. Appearance presets can be exported and imported separately without sharing app lists. Import asks before replacing those settings. Android backups also remember widget providers, order, and heights. Use **Widgets → Recover widgets** after importing to re-add them through Android’s normal permission and configuration screens. Widget contents, accounts, and App Lock are not included. Browser preview backups are separate from Android backups.
 
 ## Persistent release signing
 
@@ -39,3 +39,10 @@ In GitHub Actions settings, configure `STILL_KEYSTORE_BASE64` (the base64-encode
 ## Optional Chats inbox
 
 Tap **Chats**, choose **Enable Chats**, and grant **Still Chats** notification access in Android settings. Return to Still and open Chats. It shows active message notifications, not conversation history. Use **Refresh** for new or dismissed notifications. **Reply** appears only when the source notification supports a text reply. **Open chat** uses a supported notification link; **Open app** launches the messaging app directly, including when the link is unavailable. Still does not store or upload message contents. Previews are off by default, hidden and App Locked apps are excluded, and **Chat settings** lets you filter supported messaging apps or turn Chats off. Revoke Still Chats notification access in Android settings when you no longer need it. The browser preview uses fictional messages.
+
+### Compact Favorites and home shortcuts
+
+- Hold empty space and choose **Widgets → Stack widgets** to share one spot in Favorites. Swipe horizontally or use the previous/next controls; vertical swipes still scroll the launcher. Switch back to show widgets separately at any time.
+- Create named app groups under **Launcher settings → App list → Collections**. Collections appear in Favorites, follow your hidden-app and App Lock preferences, and do not affect the alphabetical list. Backups preserve Collections and the stacking preference, not live widget instances.
+- Choose **Icons → Icon style → Dots** for a quieter app list, or open **Theme** to preview the White and Black palettes before applying.
+- Tap the date to open Calendar where supported, or tap the time to open Clock. No calendar access is required.
