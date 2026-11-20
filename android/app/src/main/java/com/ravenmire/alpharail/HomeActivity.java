@@ -1066,7 +1066,7 @@ public class HomeActivity extends Activity {
         page.requestWindowFeature(Window.FEATURE_NO_TITLE);
         boolean wallpaper = homeShowsWallpaper();
         LinearLayout content = column(); content.setBackgroundColor(wallpaper ? wallpaperPanelColor() : paper); content.setPadding(dp(18), dp(10), dp(18), dp(8));
-        TextView close = action(back == null ? "Close settings" : "‹  Settings", () -> { page.dismiss(); if (back != null) back.run(); });
+        TextView close = action(back == null ? "Close settings" : "‹  Back", () -> { page.dismiss(); if (back != null) back.run(); });
         close.setTextColor(accent); if (wallpaper) styleWallpaperPanelText(close); content.addView(close);
         FrameLayout banner = wallpaper ? new FrameLayout(this) : heroFrame(); LinearLayout heading = column(); heading.setPadding(dp(18), dp(12), dp(18), dp(14));
         TextView kicker = text("ALPHARAIL STUDIO", 10, 0xffd9dcff); kicker.setLetterSpacing(.2f); heading.addView(kicker);
@@ -1096,6 +1096,7 @@ public class HomeActivity extends Activity {
             for (int child = 0; child < row.getChildCount(); child++) row.getChildAt(child).setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.bottomMargin = dp(7); cards.addView(row, spacing);
         }
+        page.setOnCancelListener(d -> { if (back != null) back.run(); });
         page.setContentView(content); keepOnlyWallpaperBehind(page); page.show();
         Window window = page.getWindow();
         if (window != null) {
@@ -1239,7 +1240,9 @@ public class HomeActivity extends Activity {
     }
     private String scheduleTime(String key, int fallback) {
         int minutes = scheduleMinutes(key, fallback);
-        return String.format(Locale.getDefault(), "%02d:%02d", minutes / 60, minutes % 60);
+        Calendar time = Calendar.getInstance();
+        time.set(Calendar.HOUR_OF_DAY, minutes / 60); time.set(Calendar.MINUTE, minutes % 60);
+        return new java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(time.getTime());
     }
     private boolean scheduledNight() {
         Calendar now = Calendar.getInstance();
@@ -1258,16 +1261,29 @@ public class HomeActivity extends Activity {
                 }
             }).setNegativeButton("Back", (d,w) -> showHomeAppSettings()).show();
     }
+    private void toggleSchedule() {
+        if (!prefs.getBoolean("scheduledTheme", false) && homeShowsWallpaper()) {
+            launcherDialog().setTitle("Enable theme schedule?")
+                .setMessage("Scheduling switches between White and Black backgrounds. Turn off wallpaper in Alpharail to enable it? Your Android wallpaper will not be changed.")
+                .setPositiveButton("Enable", (d,w) -> {
+                    prefs.edit().putBoolean("showHomeWallpaper", false).putBoolean("scheduledTheme", true).apply();
+                    recreate();
+                }).setNegativeButton("Cancel", (d,w) -> showSchedule()).show();
+        } else {
+            prefs.edit().putBoolean("scheduledTheme", !prefs.getBoolean("scheduledTheme", false)).apply();
+            recreate();
+        }
+    }
     private void showSchedule() {
         showMenu("Scheduled theme", Arrays.asList("Schedule: " + (prefs.getBoolean("scheduledTheme", false) ? "On" : "Off"),
-            "Black starts at " + scheduleTime("nightStart", 20), "White starts at " + scheduleTime("nightEnd", 7)), Arrays.asList(
-            () -> { prefs.edit().putBoolean("scheduledTheme", !prefs.getBoolean("scheduledTheme", false)).apply(); recreate(); },
+            "Black starts at " + scheduleTime("nightStart", 20), "White starts at " + scheduleTime("nightEnd", 7) + (homeShowsWallpaper() ? " · Paused while wallpaper is on" : "")), Arrays.asList(
+            this::toggleSchedule,
             () -> pickScheduleHour("nightStart", 20), () -> pickScheduleHour("nightEnd", 7)));
     }
     private void pickScheduleHour(String key, int fallback) {
         new android.app.TimePickerDialog(this, (view,hour,minute) -> {
             prefs.edit().putInt(key, hour).putInt(key + "Minute", minute).apply(); showSchedule();
-        }, prefs.getInt(key, fallback), prefs.getInt(key + "Minute", 0), true).show();
+        }, prefs.getInt(key, fallback), prefs.getInt(key + "Minute", 0), false).show();
     }
     private void addWorkApps() {
         if (!prefs.getBoolean("showWork", false)) return;
@@ -1404,13 +1420,19 @@ public class HomeActivity extends Activity {
                 default: glyphs[i] = "⚙"; break;
             }
         }
-        showSettingsPage(title, "Customize your launcher", labels.toArray(new String[0]), descriptions, glyphs, actions, this::showSettings);
+        showSettingsPage(title, "Customize your launcher", labels.toArray(new String[0]), descriptions, glyphs, actions, settingsParent(title) == null ? this::showSettings : settingsParent(title));
     }
     private void setting(String title, String key, String[] values, int fallback, Runnable parent) {
-        launcherDialog().setTitle(title).setSingleChoiceItems(values, prefs.getInt(key, fallback), (d,i) -> {
-            prefs.edit().putInt(key, i).apply();
-            d.dismiss(); placeRail(); refresh(); parent.run();
-        }).setNegativeButton("Back", (d,w) -> parent.run()).show();
+        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+        for (int i = 0; i < values.length; i++) {
+            final int selected = i;
+            labels.add(values[i] + (prefs.getInt(key, fallback) == i ? "  ✓" : ""));
+            actions.add(() -> {
+                prefs.edit().putInt(key, selected).apply();
+                rowCache.evictAll(); rebuildHomePreservingScroll(); setting(title, key, values, fallback, parent);
+            });
+        }
+        showSettingsOptions(title, labels, actions, parent);
     }
     private void showHiddenApps() {
         showAppChoices("Hidden apps", "Checked apps are hidden from Alpharail, but stay installed.", "hidden", this::showPrivacySettings);
@@ -1615,7 +1637,27 @@ public class HomeActivity extends Activity {
             for (int i = 0; i < group.getChildCount(); i++) styleWallpaperDialogContent(group.getChildAt(i));
         }
     }
+    private Runnable settingsParent(String title) {
+        switch (title) {
+            case "Appearance": case "Home & apps": case "Notifications & Chats":
+            case "Privacy": case "Accessibility": case "Backup and restore": case "System": return this::showSettings;
+            case "Home wallpaper": case "Abstract wallpapers": case "Icons": case "Fonts":
+            case "Wallpaper presets": case "Clock appearance": case "Scheduled theme": return this::showAppearanceSettings;
+            case "Clock": case "Widgets": case "Reorder Favorites": case "Collections": case "Alphabet": return this::showHomeAppSettings;
+            case "Chat settings": return this::showNotificationSettings;
+            case "Per-app Chats controls": case "Included apps": return this::showChatSettings;
+            case "Updates": return this::showSystemSettings;
+            default: return null;
+        }
+    }
+    private void showSettingsOptions(String title, List<String> labels, List<Runnable> actions, Runnable back) {
+        String[] details = new String[labels.size()], glyphs = new String[labels.size()];
+        Arrays.fill(details, ""); Arrays.fill(glyphs, "⚙");
+        showSettingsPage(title, "Customize your launcher", labels.toArray(new String[0]), details, glyphs, actions, back);
+    }
     private void showMenu(String title, List<String> labels, List<Runnable> actions) {
+        Runnable parent = settingsParent(title);
+        if (parent != null) { showSettingsOptions(title, labels, actions, parent); return; }
         launcherDialog().setTitle(title).setItems(labels.toArray(new String[0]), (d,i) -> actions.get(i).run())
             .setNegativeButton("Cancel", null).show();
     }
