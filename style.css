@@ -86,16 +86,6 @@ main{max-width:1380px;gap:6vw}.intro>.eyebrow{background:#e9edff;border:0;border
 .stage .screen[data-wallpaper-name="obsidian_copper"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_obsidian_copper.jpg") !important}
 .stage .screen[data-wallpaper-name="ink_aurora"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_ink_aurora.jpg") !important}
 .stage .screen[data-wallpaper-name="ink_ember"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_ink_ember.jpg") !important}
-.stage .screen[data-wallpaper-name="cloud_sect"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_cloud_sect.jpg") !important}
-.stage .screen[data-wallpaper-name="moonblade"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_moonblade.jpg") !important}
-.stage .screen[data-wallpaper-name="bamboo_vigil"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_bamboo_vigil.jpg") !important}
-.stage .screen[data-wallpaper-name="jade_dragon"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_jade_dragon.jpg") !important}
-.stage .screen[data-wallpaper-name="crimson_pass"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_crimson_pass.jpg") !important}
-.stage .screen[data-wallpaper-name="lotus_domain"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_lotus_domain.jpg") !important}
-.stage .screen[data-wallpaper-name="snow_monastery"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_snow_monastery.jpg") !important}
-.stage .screen[data-wallpaper-name="astral_stair"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_astral_stair.jpg") !important}
-.stage .screen[data-wallpaper-name="lantern_river"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_lantern_river.jpg") !important}
-.stage .screen[data-wallpaper-name="phoenix_peak"] {background-image:url("android/app/src/main/res/drawable-nodpi/wall_phoenix_peak.jpg") !important}
 
 /* Match the native wallpaper-aware long-press panel. */
 .stage .screen:has(.launcher[data-wallpaper="on"]) dialog {
@@ -124,3 +114,6 @@ main{max-width:1380px;gap:6vw}.intro>.eyebrow{background:#e9edff;border:0;border
   inset:var(--phone-center) auto auto calc(var(--phone-left) + 18px);
   width:calc(var(--phone-width) - 36px); border-radius:20px; transform:translateY(-50%);
 }
+
+.clock-cover h2.compact #home-clock{font-size:34px}
+.clock-cover h2:has(#demo-next-alarm){display:flex;align-items:center;justify-content:space-between;gap:10px}

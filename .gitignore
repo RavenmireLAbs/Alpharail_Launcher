@@ -6,3 +6,7 @@ local.properties
 *.p12
 
 /google_drive/
+
+# Wallpaper generation inputs; optimized deliverables live in Android resources.
+/image-search/
+/wallpaper-generated/

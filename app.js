@@ -31,16 +31,21 @@ let widgets = read('widgets', []), hidden = read('hidden', []), heights = read('
 let appearance = read('appearance', {}), locked = read('locked', []);
 let collections = read('collections', []), stacked = read('stacked-widgets', false), stackWidget = read('stack-widget', null);
 let demoWallpaper = read('demo-wallpaper', true), demoWallpaperName = read('demo-wallpaper-name', 'android');
-const abstractWallpapers = ['Porcelain', 'Fold', 'Pearl', 'Glacier', 'Linen', 'Eclipse', 'Fault', 'Obsidian', 'Ink', 'Orbit', 'Obsidian Amethyst', 'Obsidian Copper', 'Ink Aurora', 'Ink Ember', 'Cloud Sect', 'Moonblade', 'Bamboo Vigil', 'Jade Dragon', 'Crimson Pass', 'Lotus Domain', 'Snow Monastery', 'Astral Stair', 'Lantern River', 'Phoenix Peak'];
+const abstractWallpapers = ['Porcelain', 'Fold', 'Pearl', 'Glacier', 'Linen', 'Eclipse', 'Fault', 'Obsidian', 'Ink', 'Orbit', 'Obsidian Amethyst', 'Obsidian Copper', 'Ink Aurora', 'Ink Ember'];
 const wallpaperAsset = name => `android/app/src/main/res/drawable-nodpi/wall_${name.toLowerCase().replaceAll(' ', '_')}.jpg`;
 let timer, beforeSearch = 0, filtering = false;
+function toast(message) {
+  $('toast').textContent = message;
+  clearTimeout(timer); timer = setTimeout(() => $('toast').textContent = '', 2200);
+}
 const filterKey = value => value.trim().toLowerCase().normalize('NFD').replace(/\p{M}+/gu, '');
 function searchResults(entries, query) {
   const tokens = query.split(/\s+/);
-  const buckets = [[], [], [], []];
+  const buckets = [[], [], [], [], [], []];
+  const initials = value => filterKey(value.replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2')).split(/[^\p{L}\p{N}]+/u).filter(Boolean).map(word => word[0]).join('');
   for (const item of entries) {
     const name = filterKey(item[0]);
-    const rank = name === query ? 0 : name.startsWith(query) ? 1 : name.includes(query) ? 2 : tokens.every(word => name.includes(word)) ? 3 : -1;
+    let rank = name === query ? 0 : name.startsWith(query) ? 1 : initials(item[0]).startsWith(query) && query.length > 1 ? 2 : name.includes(query) ? 3 : tokens.every(word => name.includes(word)) ? 4 : -1;
     if (rank >= 0) buckets[rank].push(item);
   }
   return buckets.flat();
@@ -188,6 +193,7 @@ function previewTheme() {
 }
 const settingCards = {
   Theme: ['◐', () => demoWallpaper ? 'Unavailable while wallpaper is on' : appearance.theme === 1 ? 'Black palette' : 'White palette'],
+  'Wallpaper presets': ['✦', 'Save and switch looks'], Clock: ['◷', 'Size, date and alarm time'],
   Icons: ['▦', 'Style, size and shape'], Fonts: ['Aa', 'Typeface and text size'],
   'App list': ['A–Z', 'Favorites and alphabet placement'], Privacy: ['◇', 'Hidden apps and App Lock'],
   'Backup and restore': ['⇅', 'Move your settings to another device'], Back: ['‹', 'Launcher settings'],
@@ -212,6 +218,8 @@ function launcherSettings() {
   settingsPage('Launcher settings', [
     ['Theme', previewTheme],
     ['Home wallpaper', wallpaperMenu],
+    ['Wallpaper presets', wallpaperPresets],
+    ['Clock', clockSettings],
     ['Icons', iconSettings],
     ['Fonts', fontSettings],
     ['App list', listSettings],
@@ -223,16 +231,41 @@ function chooseWallpaper(name) {
   demoWallpaper = name !== 'none'; demoWallpaperName = name;
   storePreview('demo-wallpaper', demoWallpaper); storePreview('demo-wallpaper-name', name); update();
 }
+let presets = read('wallpaper-presets', [{name:'Obsidian night', wallpaper:'obsidian'}]);
+function wallpaperPresets() {
+  const entries = presets.map(item => [`${item.wallpaper === 'android' ? 'Android wallpaper' : item.wallpaper.replace(/_/g, ' ')} · ${item.name}`, () => {
+    chooseWallpaper(item.wallpaper); toast(`Applied “${item.name}”`); wallpaperPresets();
+  }]);
+  entries.push(['Save current look as preset', () => {
+    const name = prompt('Preset name', 'My look');
+    if (!name || !name.trim()) return;
+    presets.push({name: name.trim().slice(0, 32), wallpaper: demoWallpaperName});
+    storePreview('wallpaper-presets', presets); toast('Preset saved'); wallpaperPresets();
+  }]);
+  if (presets.length) entries.push(['Manage presets', () => menu('Manage presets', presets.map((item, i) => [item.name, () => {
+    presets.splice(i, 1); storePreview('wallpaper-presets', presets); toast('Preset deleted'); wallpaperPresets();
+  }]).concat([['Back', wallpaperPresets]]))]);
+  entries.push(['Back', launcherSettings]);
+  menu('Wallpaper presets', entries, hint('Save a wallpaper with your icon, font and clock settings, then switch looks in one tap.'));
+}
+function clockSettings() {
+  const compact = read('clock-compact', false), hideDate = read('clock-hide-date', false), alarmTime = read('clock-alarm-time', false);
+  menu('Clock', [
+    [compact ? 'Large clock' : 'Compact clock', () => { storePreview('clock-compact', !compact); $('home-clock').closest('h2').classList.toggle('compact', !compact); clockSettings(); }],
+    [hideDate ? 'Show date' : 'Hide date', () => { storePreview('clock-hide-date', !hideDate); $('home-date').hidden = !hideDate; clockSettings(); }],
+    [alarmTime ? 'Hide alarm time' : 'Show next alarm time', () => { storePreview('clock-alarm-time', !alarmTime); const old = $('demo-next-alarm'); if (!alarmTime && !old) return; if (alarmTime) old?.remove(); clockSettings(); }],
+  ]);
+}
 function wallpaperMenu() {
   menu('Home wallpaper', [['No wallpaper', () => chooseWallpaper('none')], ['Android wallpaper (sample)', () => chooseWallpaper('android')],
-    ['Abstract', abstractMenu], ['Wuxia & Xianxia', () => wallpaperGallery(14)]]);
+    ['Abstract', abstractMenu]]);
 }
 function abstractMenu() {
   menu('Abstract wallpapers', [['Light abstract wallpapers', () => wallpaperGallery(0)], ['Dark abstract wallpapers', () => wallpaperGallery(5)], ['Back', wallpaperMenu]]);
 }
 function wallpaperGallery(start) {
   const gallery = document.createElement('div'); gallery.className = 'wallpaper-gallery';
-  for (const name of abstractWallpapers.slice(start, start === 0 ? 5 : start === 5 ? 14 : undefined)) {
+  for (const name of abstractWallpapers.slice(start, start === 0 ? 5 : 14)) {
     const tile = button(name, () => {
       const image = document.createElement('img'); image.src = wallpaperAsset(name); image.alt = `${name} wallpaper`; image.className = 'wallpaper-detail';
       menu(name, [['Apply', () => chooseWallpaper(name)], ['Back', () => wallpaperGallery(start)]], image);
@@ -240,7 +273,7 @@ function wallpaperGallery(start) {
     const image = document.createElement('img'); image.src = wallpaperAsset(name); image.alt = '';
     tile.prepend(image); gallery.append(tile);
   }
-  menu(start === 0 ? 'Light abstract wallpapers' : start === 5 ? 'Dark abstract wallpapers' : 'Wuxia & Xianxia', [['Back', start < 14 ? abstractMenu : wallpaperMenu]], gallery);
+  menu(start === 0 ? 'Light abstract wallpapers' : 'Dark abstract wallpapers', [['Back', abstractMenu]], gallery);
 }
 function settingsGroup(title, entries) { settingsPage(title, [...entries, ['Back', launcherSettings]], 'Customize your launcher'); }
 function iconSettings() {
@@ -494,8 +527,15 @@ function render(y) {
     if (!results.length) group.append(hint('No matching apps.'));
     $('count').textContent = `${results.length} FOUND`;
   } else {
-    const group = section('★  FAVORITES', '★');
+    const collapsed = read('favorites-collapsed', false);
+    const group = section(collapsed ? '★  FAVORITES  ›' : '★  FAVORITES  ⌄', '★');
+    group.querySelector('.letter').style.cursor = 'pointer';
+    group.querySelector('.letter').setAttribute('role', 'button');
+    group.querySelector('.letter').setAttribute('tabindex', '0');
+    group.querySelector('.letter').setAttribute('aria-label', collapsed ? 'Expand Favorites and widgets' : 'Collapse Favorites and widgets');
+    group.querySelector('.letter').onclick = () => { storePreview('favorites-collapsed', !collapsed); render(0); };
     const pinned = favorites.filter(name => icons.has(name) && !hidden.includes(name));
+    if (!collapsed) {
     for (const name of pinned) group.append(makeRow(name, icons.get(name), true));
     if (!pinned.length) group.append(hint('Tap an app’s star to pin it here.'));
     for (const item of collections) {
@@ -505,6 +545,7 @@ function render(y) {
     const visibleWidgets = widgets.filter(name => demoWidgets.has(name));
     if (stacked && visibleWidgets.length > 1) group.append(widgetStack(visibleWidgets));
     else for (const name of visibleWidgets) group.append(widgetRow(name));
+    }
     for (const [letter, entries] of Object.entries(apps)) {
       const shown = entries.filter(([name]) => !hidden.includes(name));
       if (!shown.length) continue;
@@ -654,6 +695,16 @@ function chatSettings() {
         label.append(input, chat.app); choices.append(label);
       }
       menu('Included apps', [['Save', () => { chatExcluded = [...excluded]; saveChats(); showChats(); }]], choices);
+    }],
+    ['Per-app controls', () => {
+      const muted = new Set(read('chat-muted', [])), privateApps = new Set(read('chat-private', []));
+      menu('Per-app Chats controls', chatSamples.map(chat => [chat.app, () => {
+        menu(chat.app, [
+          [muted.has(chat.app) ? 'Show new-message dot' : 'Mute new-message dot', () => { muted.has(chat.app) ? muted.delete(chat.app) : muted.add(chat.app); storePreview('chat-muted', [...muted]); }],
+          [privateApps.has(chat.app) ? 'Show message previews' : 'Hide message previews', () => { privateApps.has(chat.app) ? privateApps.delete(chat.app) : privateApps.add(chat.app); storePreview('chat-private', [...privateApps]); }],
+          ['Back', () => {}],
+        ]);
+      }]).concat([['Back', chatSettings]]));
     }],
     ['Turn off Chats', () => { chatEnabled = false; chatPreviews = false; saveChats(); }],
   ]);
