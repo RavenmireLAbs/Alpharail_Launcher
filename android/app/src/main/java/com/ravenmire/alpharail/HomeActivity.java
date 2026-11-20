@@ -63,7 +63,7 @@ public class HomeActivity extends Activity {
     private boolean pendingLockSettings;
     private static final int CONFIRM_LAUNCH = 21, CONFIRM_LOCK_SETTINGS = 22;
     private boolean welcome;
-    private TextView clock, date;
+    private TextView clock, date, nextAlarmTime;
     private Drawable nextAlarmIcon;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable tick = new Runnable() {
@@ -71,6 +71,7 @@ public class HomeActivity extends Activity {
             if (clock != null && date != null) {
                 Date now = new Date();
                 String time = android.text.format.DateFormat.getTimeFormat(HomeActivity.this).format(now);
+                if (nextAlarmTime != null) nextAlarmTime.setVisibility(View.GONE);
                 clock.setText(time);
                 android.app.AlarmManager alarms = getSystemService(android.app.AlarmManager.class);
                 android.app.AlarmManager.AlarmClockInfo next = alarms == null ? null : alarms.getNextAlarmClock();
@@ -78,6 +79,10 @@ public class HomeActivity extends Activity {
                 String alarmDescription = next == null ? "" : ", next alarm at " + android.text.format.DateFormat
                     .getTimeFormat(HomeActivity.this).format(new Date(next.getTriggerTime()));
                 clock.setContentDescription(time + alarmDescription + ", open Clock");
+                if (nextAlarmTime != null && next != null && prefs.getBoolean("clockAlarmTime", false)) {
+                    nextAlarmTime.setText("Alarm · " + android.text.format.DateFormat.getTimeFormat(HomeActivity.this).format(new Date(next.getTriggerTime())));
+                    nextAlarmTime.setVisibility(View.VISIBLE);
+                }
                 String day = android.text.format.DateFormat.format("EEEE, MMMM d", now).toString().toUpperCase(Locale.getDefault());
                 date.setText(day); date.setContentDescription(day + ", open Calendar");
             }
@@ -132,12 +137,13 @@ public class HomeActivity extends Activity {
         boolean enabled = chatEnabled() && ChatNotifications.available();
         if (enabled) {
             Set<String> active = new HashSet<>();
+            Set<String> muted = saved("chatMutedDots");
             for (StatusBarNotification item : ChatNotifications.current()) {
                 if (!chatAllowed(item.getPackageName())) continue;
                 String key = item.getKey(); long time = item.getPostTime();
                 active.add(key);
                 if (acknowledge) seenChatNotifications.put(key, time);
-                else if (!Objects.equals(seenChatNotifications.get(key), time)) unread = true;
+                else if (!muted.contains(item.getPackageName()) && !Objects.equals(seenChatNotifications.get(key), time)) unread = true;
             }
             seenChatNotifications.keySet().retainAll(active);
         }
@@ -246,7 +252,7 @@ public class HomeActivity extends Activity {
         open.setOnClickListener(v -> { prefs.edit().putBoolean("welcome", true).apply(); home(0); });
         root.addView(open, new LinearLayout.LayoutParams(-1, -2));
     }
-    private static final String[] WALLPAPERS = {"Porcelain", "Fold", "Pearl", "Glacier", "Linen", "Eclipse", "Fault", "Obsidian", "Ink", "Orbit", "Obsidian Amethyst", "Obsidian Copper", "Ink Aurora", "Ink Ember", "Cloud Sect", "Moonblade", "Bamboo Vigil", "Jade Dragon", "Crimson Pass", "Lotus Domain", "Snow Monastery", "Astral Stair", "Lantern River", "Phoenix Peak"};
+    private static final String[] WALLPAPERS = {"Porcelain", "Fold", "Pearl", "Glacier", "Linen", "Eclipse", "Fault", "Obsidian", "Ink", "Orbit", "Obsidian Amethyst", "Obsidian Copper", "Ink Aurora", "Ink Ember"};
     private boolean homeShowsWallpaper() { return prefs.getBoolean("showHomeWallpaper", false); }
     private int bundledWallpaper() {
         int index = prefs.getInt("bundledWallpaper", -1);
@@ -321,9 +327,9 @@ public class HomeActivity extends Activity {
         recreate();
     }
     private void showWallpaperSettings() {
-        showMenu("Home wallpaper", Arrays.asList("No wallpaper", "Android wallpaper", "Abstract", "Wuxia & Xianxia"), Arrays.asList(
+        showMenu("Home wallpaper", Arrays.asList("No wallpaper", "Android wallpaper", "Abstract"), Arrays.asList(
             () -> selectWallpaper(false, bundledWallpaper()), () -> selectWallpaper(true, -1),
-            this::showAbstractWallpapers, () -> showWallpaperGallery(14)));
+            this::showAbstractWallpapers));
     }
     private void showAbstractWallpapers() {
         showMenu("Abstract wallpapers", Arrays.asList("Light abstract wallpapers", "Dark abstract wallpapers", "Back"),
@@ -332,10 +338,10 @@ public class HomeActivity extends Activity {
     private void showWallpaperGallery(int start) {
         ScrollView scroll = new ScrollView(this);
         LinearLayout tiles = column(); tiles.setPadding(dp(18), 0, dp(18), dp(12)); scroll.addView(tiles);
-        AlertDialog gallery = launcherDialog().setTitle(start == 0 ? "Light abstract wallpapers" : start == 5 ? "Dark abstract wallpapers" : "Wuxia & Xianxia")
-            .setView(scroll).setNegativeButton("Back", (d,w) -> { if (start < 14) showAbstractWallpapers(); else showWallpaperSettings(); }).create();
+        AlertDialog gallery = launcherDialog().setTitle(start == 0 ? "Light abstract wallpapers" : "Dark abstract wallpapers")
+            .setView(scroll).setNegativeButton("Back", (d,w) -> showAbstractWallpapers()).create();
         LinearLayout row = null;
-        int end = start == 0 ? 5 : start == 5 ? 14 : WALLPAPERS.length;
+        int end = start == 0 ? 5 : WALLPAPERS.length;
         for (int i = start; i < end; i++) {
             if ((i - start) % 2 == 0) { row = new LinearLayout(this); tiles.addView(row); }
             int selected = i;
@@ -353,6 +359,107 @@ public class HomeActivity extends Activity {
         }
         if (row != null && (end - start) % 2 != 0) row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
         gallery.show();
+    }
+    private JSONArray savedPresets() {
+        try { return new JSONArray(prefs.getString("wallpaperPresets", "[]")); }
+        catch (JSONException ignored) { return new JSONArray(); }
+    }
+    private JSONObject currentLook() throws JSONException {
+        JSONObject look = new JSONObject();
+        for (int i = 0; i < APPEARANCE.length; i++) look.put(APPEARANCE[i], prefs.getInt(APPEARANCE[i], DEFAULTS[i]));
+        look.put("clockCompact", prefs.getBoolean("clockCompact", false))
+            .put("clockHideDate", prefs.getBoolean("clockHideDate", false))
+            .put("clockAlarmTime", prefs.getBoolean("clockAlarmTime", false));
+        return look;
+    }
+    private void applyLook(JSONObject look) {
+        android.content.SharedPreferences.Editor edit = prefs.edit();
+        for (int i = 0; i < APPEARANCE.length; i++) edit.putInt(APPEARANCE[i], look.optInt(APPEARANCE[i], DEFAULTS[i]));
+        edit.putBoolean("clockCompact", look.optBoolean("clockCompact", false))
+            .putBoolean("clockHideDate", look.optBoolean("clockHideDate", false))
+            .putBoolean("clockAlarmTime", look.optBoolean("clockAlarmTime", false)).apply();
+    }
+    private void showWallpaperPresets() {
+        JSONArray presets = savedPresets();
+        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+        for (int i = 0; i < presets.length(); i++) {
+            JSONObject preset = presets.optJSONObject(i);
+            if (preset == null) continue;
+            String name = preset.optString("name");
+            int wallpaper = preset.optInt("wallpaper", -2);
+            labels.add((wallpaper >= 0 ? WALLPAPERS[wallpaper] + " · " : "Android wallpaper · ") + name);
+            actions.add(() -> applyWallpaperPreset(preset));
+        }
+        if (labels.isEmpty()) { labels.add("No presets saved yet"); actions.add(this::showWallpaperPresets); }
+        labels.add("Save current look as preset"); actions.add(this::saveWallpaperPreset);
+        if (presets.length() > 0) { labels.add("Manage presets"); actions.add(this::manageWallpaperPresets); }
+        labels.add("Back"); actions.add(this::showSettings);
+        showMenu("Wallpaper presets", labels, actions);
+    }
+    private void saveWallpaperPreset() {
+        final EditText input = new android.widget.EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+        input.setHint("Preset name"); input.setText("My look");
+        launcherDialog().setTitle("Save current look")
+            .setMessage("Save the current wallpaper, icon, font, and clock settings as a preset.")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", (d,w) -> {
+                String name = input.getText().toString().replaceAll("[\\p{Cc}\\p{Cf}]", "").trim();
+                if (name.isEmpty() || name.length() > 32) { Toast.makeText(this, "Enter a preset name (up to 32 characters)", Toast.LENGTH_SHORT).show(); return; }
+                try {
+                    JSONArray presets = savedPresets();
+                    JSONObject preset = currentLook().put("name", name).put("wallpaper", bundledWallpaper());
+                    presets.put(preset);
+                    prefs.edit().putString("wallpaperPresets", presets.toString()).apply();
+                    Toast.makeText(this, "Preset saved", Toast.LENGTH_SHORT).show();
+                } catch (JSONException ignored) { Toast.makeText(this, "Could not save preset", Toast.LENGTH_SHORT).show(); }
+                showWallpaperPresets();
+            }).show();
+    }
+    private void manageWallpaperPresets() {
+        JSONArray presets = savedPresets();
+        if (presets.length() == 0) { showWallpaperPresets(); return; }
+        String[] names = new String[presets.length() + 1];
+        for (int i = 0; i < presets.length(); i++) {
+            JSONObject preset = presets.optJSONObject(i);
+            names[i] = preset == null ? "Preset " + (i + 1) : preset.optString("name", "Preset " + (i + 1));
+        }
+        names[presets.length()] = "Back";
+        launcherDialog().setTitle("Manage presets").setItems(names, (d,i) -> {
+            if (i == presets.length()) { showWallpaperPresets(); return; }
+            JSONArray updated = new JSONArray();
+            for (int j = 0; j < presets.length(); j++) if (j != i) updated.put(presets.opt(j));
+            prefs.edit().putString("wallpaperPresets", updated.toString()).apply();
+            Toast.makeText(this, "Preset deleted", Toast.LENGTH_SHORT).show();
+            showWallpaperPresets();
+        }).setNegativeButton("Cancel", (d,w) -> showWallpaperPresets()).show();
+    }
+    private void applyWallpaperPreset(JSONObject preset) {
+        applyLook(preset.optJSONObject("look") != null ? preset.optJSONObject("look") : preset);
+        int wallpaper = preset.optInt("wallpaper", -2);
+        if (wallpaper >= 0 && wallpaper < WALLPAPERS.length) {
+            prefs.edit().putBoolean("showHomeWallpaper", true).putInt("bundledWallpaper", wallpaper).apply();
+            setAndroidWallpaper(wallpaper, true);
+        } else if (wallpaper == -1) {
+            prefs.edit().putBoolean("showHomeWallpaper", true).putInt("bundledWallpaper", -1).apply();
+            base(); applyHomeBackground(); refresh();
+        } else {
+            prefs.edit().putBoolean("showHomeWallpaper", false).apply();
+            base(); applyHomeBackground(); refresh();
+        }
+        Toast.makeText(this, "Applied “" + preset.optString("name") + "”", Toast.LENGTH_SHORT).show();
+        showWallpaperPresets();
+    }
+    private void showClockSettings() {
+        showMenu("Clock", Arrays.asList(
+                prefs.getBoolean("clockCompact", false) ? "Large clock" : "Compact clock",
+                prefs.getBoolean("clockHideDate", false) ? "Show date" : "Hide date",
+                prefs.getBoolean("clockAlarmTime", false) ? "Hide alarm time" : "Show next alarm time"),
+            Arrays.asList(
+                () -> { prefs.edit().putBoolean("clockCompact", !prefs.getBoolean("clockCompact", false)).apply(); base(); applyHomeBackground(); refresh(); showClockSettings(); },
+                () -> { prefs.edit().putBoolean("clockHideDate", !prefs.getBoolean("clockHideDate", false)).apply(); base(); applyHomeBackground(); refresh(); showClockSettings(); },
+                () -> { prefs.edit().putBoolean("clockAlarmTime", !prefs.getBoolean("clockAlarmTime", false)).apply(); handler.post(tick); showClockSettings(); }));
     }
     private void previewWallpaper(int selected, int group) {
         ImageView image = new ImageView(this); image.setImageResource(wallpaperRes(selected));
@@ -406,9 +513,15 @@ public class HomeActivity extends Activity {
         date = text("", 11, 0xffe0e2ff); date.setLetterSpacing(.15f); date.setFocusable(true); date.setOnClickListener(v -> openCalendar()); face.addView(date);
         clock = text("", 56, 0xffffffff); clock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         clock.setLetterSpacing(-.06f); clock.setSingleLine(true);
-        clock.setAutoSizeTextTypeUniformWithConfiguration(26, 56, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        boolean compact = prefs.getBoolean("clockCompact", false);
+        clock.setAutoSizeTextTypeUniformWithConfiguration(22, compact ? 36 : 56, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         clock.setFocusable(true); clock.setOnClickListener(v -> openClock());
-        face.addView(clock, new LinearLayout.LayoutParams(-1, dp(74)));
+        face.addView(clock, new LinearLayout.LayoutParams(-1, dp(compact ? 48 : 74)));
+        date.setVisibility(prefs.getBoolean("clockHideDate", false) ? View.GONE : View.VISIBLE);
+        nextAlarmTime = text("", 13, 0xffe0e2ff);
+        nextAlarmTime.setVisibility(View.GONE);
+        nextAlarmTime.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        styleWallpaperText(nextAlarmTime); face.addView(nextAlarmTime);
         styleWallpaperText(date); styleWallpaperText(clock);
         int alarmIconRes = getResources().getIdentifier("ic_next_alarm", "drawable", getPackageName());
         nextAlarmIcon = alarmIconRes == 0 ? null : getDrawable(alarmIconRes).mutate();
@@ -643,20 +756,29 @@ public class HomeActivity extends Activity {
             }
             if (!any) { TextView empty = text("No matching apps", 15, moss); styleWallpaperText(empty); list.addView(empty); }
         } else {
-            section("★   FAVORITES", "★", "Favorites");
+            boolean collapsed = prefs.getBoolean("favoritesCollapsed", false);
+            TextView favoritesHeader = section(collapsed ? "★   FAVORITES   ›" : "★   FAVORITES   ⌄", "★", "Favorites");
+            favoritesHeader.setMinHeight(dp(44)); favoritesHeader.setFocusable(true);
+            favoritesHeader.setContentDescription(collapsed ? "Expand Favorites and widgets" : "Collapse Favorites and widgets");
+            favoritesHeader.setOnClickListener(v -> {
+                prefs.edit().putBoolean("favoritesCollapsed", !collapsed).apply();
+                populate(0);
+            });
+            if (!collapsed) {
             Map<String, ResolveInfo> byKey = new HashMap<>();
             for (ResolveInfo app : apps) byKey.put(key(app), app);
             List<String> orderedFavorites = favoriteOrder();
             orderedFavorites.removeIf(hidden::contains);
             for (String key : orderedFavorites) row(byKey.get(key), true, true);
             if (orderedFavorites.isEmpty()) { TextView empty = text("Star an app below to pin it here.", 14, moss); styleWallpaperText(empty); list.addView(empty); }
-            if (!collections().isEmpty() || !saved("widgets").isEmpty()) {
+            if (!saved("widgets").isEmpty()) {
                 View space = new View(this); list.addView(space, new LinearLayout.LayoutParams(-1, dp(8)));
             }
-            addCollections();
             List<String> widgetIds = widgetOrder();
             if (stackWidgets() && widgetIds.size() > 1) widgetStack(widgetIds);
             else for (String id : widgetIds) widgetRow(id, list);
+            }
+            addCollections();
 
             Set<String> seen = new HashSet<>();
             String previous = null;
@@ -671,7 +793,8 @@ public class HomeActivity extends Activity {
         scroll.post(() -> scroll.scrollTo(0, y));
     }
     private List<ResolveInfo> searchResults(String filter, Set<String> hidden) {
-        List<List<ResolveInfo>> ranked = Arrays.asList(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        List<List<ResolveInfo>> ranked = new ArrayList<>();
+        for (int i = 0; i < 6; i++) ranked.add(new ArrayList<>());
         String[] tokens = filter.split("\\s+");
         for (ResolveInfo app : apps) {
             if (hidden.contains(key(app))) continue;
@@ -679,15 +802,25 @@ public class HomeActivity extends Activity {
             int rank;
             if (name.equals(filter)) rank = 0;
             else if (name.startsWith(filter)) rank = 1;
-            else if (name.contains(filter)) rank = 2;
-            else if (Arrays.stream(tokens).allMatch(name::contains)) rank = 3;
-            else if (normalized(originalLabel(app)).contains(filter) || app.activityInfo.packageName.toLowerCase(Locale.ROOT).contains(filter)) rank = 4;
+            else if (matchesInitials(label(app), filter)) rank = 2;
+            else if (name.contains(filter)) rank = 3;
+            else if (Arrays.stream(tokens).allMatch(name::contains)) rank = 4;
+            else if (normalized(originalLabel(app)).contains(filter) || app.activityInfo.packageName.toLowerCase(Locale.ROOT).contains(filter) || matchesInitials(originalLabel(app), filter)) rank = 5;
             else continue;
             ranked.get(rank).add(app);
         }
         List<ResolveInfo> results = new ArrayList<>();
         for (List<ResolveInfo> bucket : ranked) results.addAll(bucket);
         return results;
+    }
+    private boolean matchesInitials(String label, String query) {
+        if (query.length() < 2) return false;
+        String words = label.replaceAll("(\\p{Ll})(\\p{Lu})", "$1 $2");
+        StringBuilder initials = new StringBuilder();
+        for (String word : searchKey(words).split("[^\\p{L}\\p{N}]+")) {
+            if (!word.isEmpty()) initials.appendCodePoint(word.codePointAt(0));
+        }
+        return initials.toString().startsWith(query);
     }
     private void placeRail() {
         int position = prefs.getInt("railSide", 0) == 1 ? 0 : 1;
@@ -767,9 +900,9 @@ public class HomeActivity extends Activity {
         showMenu("Widgets", labels, actions);
     }
     private void showSettings() {
-        showSettingsPage("Launcher settings", "Make Alpharail yours", new String[]{"Theme", "Home wallpaper", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Updates", "Set as Home"},
-            new String[]{homeShowsWallpaper() ? "Unavailable while wallpaper is on" : (prefs.getInt("theme", 0) == 1 ? "Black palette" : "White palette"), homeShowsWallpaper() ? (bundledWallpaper() < 0 ? "Showing Android wallpaper" : WALLPAPERS[bundledWallpaper()]) : "Solid theme background", "Style, size and shape", "Typeface and text size", "Favorites and alphabet placement", "Hidden apps and App Lock", "Move your settings to another device", updateAvailable() ? "Update available" : "Check for new versions", "Choose your default launcher"},
-            new String[]{"◐", "▧", "▦", "Aa", "A–Z", "◇", "⇅", "↑", "⌂"}, Arrays.asList(homeShowsWallpaper() ? null : this::showThemeSettings, this::showWallpaperSettings, this::showIconSettings, this::showFontSettings,
+        showSettingsPage("Launcher settings", "Make Alpharail yours", new String[]{"Theme", "Home wallpaper", "Wallpaper presets", "Clock", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Updates", "Set as Home"},
+            new String[]{homeShowsWallpaper() ? "Unavailable while wallpaper is on" : (prefs.getInt("theme", 0) == 1 ? "Black palette" : "White palette"), homeShowsWallpaper() ? (bundledWallpaper() < 0 ? "Showing Android wallpaper" : WALLPAPERS[bundledWallpaper()]) : "Solid theme background", "Save and switch looks", "Size, date and alarm time", "Style, size and shape", "Typeface and text size", "Favorites and alphabet placement", "Hidden apps and App Lock", "Move your settings to another device", updateAvailable() ? "Update available" : "Check for new versions", "Choose your default launcher"},
+            new String[]{"◐", "▧", "✦", "◷", "▦", "Aa", "A–Z", "◇", "⇅", "↑", "⌂"}, Arrays.asList(homeShowsWallpaper() ? null : this::showThemeSettings, this::showWallpaperSettings, this::showWallpaperPresets, this::showClockSettings, this::showIconSettings, this::showFontSettings,
                 this::showListSettings, this::showPrivacySettings, this::backupMenu, this::showUpdateSettings, this::setHome), null);
     }
     private boolean checkingUpdates, manualUpdateRequested;
@@ -1389,7 +1522,7 @@ public class HomeActivity extends Activity {
         letterBubble.setScaleX(animate ? .86f : 1); letterBubble.setScaleY(animate ? .86f : 1);
         if (animate) letterBubble.animate().scaleX(1).scaleY(1).setDuration(130).start();
     }
-    private void section(String name, String shortcut, String description) {
+    private TextView section(String name, String shortcut, String description) {
         TextView title = text(name, 12, accent); title.setLetterSpacing(.12f); title.setTypeface(null, Typeface.BOLD); title.setPadding(0, dp(13), 0, dp(5)); styleWallpaperText(title); list.addView(title); emptyArea(title);
         if (shortcut != null) {
             TextView jump = action(shortcut, () -> {});
@@ -1403,6 +1536,7 @@ public class HomeActivity extends Activity {
             state.addState(new int[]{}, new ColorDrawable(android.graphics.Color.TRANSPARENT)); jump.setBackground(state);
             jump.setContentDescription("Jump to " + description); index.addView(jump, new LinearLayout.LayoutParams(-1, 0, 1));
         }
+        return title;
     }
     private void row(ResolveInfo app, boolean favorite, boolean inFavorites) {
         String rowKey = key(app) + "|" + label(app) + "|" + favorite + "|" + inFavorites + "|" + lockedApps.contains(app.activityInfo.packageName)
@@ -1696,7 +1830,7 @@ public class HomeActivity extends Activity {
     }
     private void fillChats(LinearLayout rows, String filter) {
         rows.removeAllViews();
-        boolean showText = prefs.getBoolean("chatPreviews", false);
+        Set<String> privateApps = saved("chatHidePreviews");
         Set<String> pins = saved("chatPins");
         List<Map.Entry<String, List<StatusBarNotification>>> entries = new ArrayList<>();
         if (chatEnabled()) entries.addAll(ChatNotifications.conversations().entrySet());
@@ -1706,6 +1840,7 @@ public class HomeActivity extends Activity {
             StatusBarNotification item = entry.getValue().get(0);
             String pkg = item.getPackageName();
             if ((filter != null && !filter.equals(pkg)) || !chatAllowed(pkg)) continue;
+            boolean showText = prefs.getBoolean("chatPreviews", false) && !privateApps.contains(pkg);
             boolean pinned = pins.contains(chatPinId(item));
             LinearLayout row = chatIdentity(item, showText); row.setPadding(0, dp(6), 0, dp(8));
             LinearLayout detail = column(); row.addView(detail, new LinearLayout.LayoutParams(0, -2, 1));
@@ -1759,7 +1894,7 @@ public class HomeActivity extends Activity {
         if (thread == null || thread.isEmpty() || !pkg.equals(thread.get(0).getPackageName())) {
             Toast.makeText(this, "This conversation is no longer active", Toast.LENGTH_SHORT).show(); return;
         }
-        boolean previews = prefs.getBoolean("chatPreviews", false);
+        boolean previews = prefs.getBoolean("chatPreviews", false) && !saved("chatHidePreviews").contains(pkg);
         StatusBarNotification latest = thread.get(0);
         LinearLayout content = column(); content.setPadding(dp(20), dp(8), dp(20), dp(8));
         LinearLayout identity = chatIdentity(latest, previews);
@@ -1897,9 +2032,9 @@ public class HomeActivity extends Activity {
         Toast.makeText(this, "This message action is no longer available", Toast.LENGTH_SHORT).show(); return false;
     }
     private void showChatSettings() {
-        showMenu("Chat settings", Arrays.asList(prefs.getBoolean("chatPreviews", false) ? "Hide message previews" : "Show message previews", "Included apps", "Screenshot protection: " + (prefs.getBoolean("chatBlockScreenshots", true) ? "On" : "Off"), "Clear conversation pins", "Android notification access", "Turn off Chats"), Arrays.asList(
+        showMenu("Chat settings", Arrays.asList(prefs.getBoolean("chatPreviews", false) ? "Hide message previews" : "Show message previews", "Included apps", "Per-app controls", "Screenshot protection: " + (prefs.getBoolean("chatBlockScreenshots", true) ? "On" : "Off"), "Clear conversation pins", "Android notification access", "Turn off Chats"), Arrays.asList(
             () -> { chatAvatars.evictAll(); sessionReplies.evictAll(); prefs.edit().putBoolean("chatPreviews", !prefs.getBoolean("chatPreviews", false)).apply(); showChats(); },
-            this::showChatApps, this::showChatScreenshotSettings,
+            this::showChatApps, this::showPerAppChatControls, this::showChatScreenshotSettings,
             () -> launcherDialog().setTitle("Clear all conversation pins?")
                 .setMessage("This only removes pins from Alpharail. Your messages stay in their original apps.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Clear pins", (d,w) -> {
@@ -1916,6 +2051,32 @@ public class HomeActivity extends Activity {
                 prefs.edit().putBoolean("chatBlockScreenshots", !blocked).apply();
                 showChatSettings();
             }).setNegativeButton("Back", (dialog, which) -> showChatSettings()).show();
+    }
+    private void showPerAppChatControls() {
+        Set<String> packages = new LinkedHashSet<>();
+        for (ResolveInfo app : apps) if (chatAllowed(app.activityInfo.packageName)) packages.add(app.activityInfo.packageName);
+        for (StatusBarNotification item : ChatNotifications.current()) if (chatAllowed(item.getPackageName())) packages.add(item.getPackageName());
+        List<String> sorted = new ArrayList<>(packages);
+        sorted.sort(Comparator.comparing(this::chatAppName, Collator.getInstance()));
+        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+        for (String pkg : sorted) { labels.add(chatAppName(pkg)); actions.add(() -> showChatAppControls(pkg)); }
+        if (labels.isEmpty()) { labels.add("No included messaging apps"); actions.add(this::showChatSettings); }
+        labels.add("Back"); actions.add(this::showChatSettings);
+        showMenu("Per-app Chats controls", labels, actions);
+    }
+    private void showChatAppControls(String pkg) {
+        Set<String> muted = saved("chatMutedDots"), hidden = saved("chatHidePreviews");
+        launcherDialog().setTitle(chatAppName(pkg))
+            .setMultiChoiceItems(new String[]{"Mute new-message dot", "Hide message previews"},
+                new boolean[]{muted.contains(pkg), hidden.contains(pkg)}, (dialog, index, checked) -> {
+                    Set<String> target = index == 0 ? muted : hidden;
+                    if (checked) target.add(pkg); else target.remove(pkg);
+                }).setNegativeButton("Cancel", (d,w) -> showPerAppChatControls())
+            .setPositiveButton("Save", (d,w) -> {
+                store("chatMutedDots", muted); store("chatHidePreviews", hidden);
+                chatAvatars.evictAll(); sessionReplies.evictAll(); refreshChatsDot(false);
+                showPerAppChatControls();
+            }).show();
     }
     private void showChatApps() {
         Set<String> excluded = saved("chatExcluded"); Set<String> packages = new LinkedHashSet<>();
