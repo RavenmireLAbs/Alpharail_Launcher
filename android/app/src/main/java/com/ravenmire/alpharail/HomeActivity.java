@@ -204,8 +204,32 @@ public class HomeActivity extends Activity {
         open.setOnClickListener(v -> { prefs.edit().putBoolean("welcome", true).apply(); home(0); });
         root.addView(open, new LinearLayout.LayoutParams(-1, -2));
     }
+    private void applyHomeBackground() {
+        Window window = getWindow();
+        boolean wallpaper = prefs.getBoolean("showHomeWallpaper", false);
+        if (wallpaper) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
+            window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
+            // Keep text legible on both light and dark photos without reading the wallpaper.
+            root.setBackgroundColor((paper & 0x00ffffff) | 0xb8000000);
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
+            window.setBackgroundDrawable(new ColorDrawable(paper));
+            root.setBackgroundColor(paper);
+        }
+    }
+    private void showWallpaperSettings() {
+        boolean enabled = prefs.getBoolean("showHomeWallpaper", false);
+        new AlertDialog.Builder(this).setTitle("Home wallpaper")
+            .setMessage("Show your Android Home wallpaper behind the app list. A tint from your White or Black theme keeps text readable. This does not change your system wallpaper.")
+            .setPositiveButton(enabled ? "Hide wallpaper" : "Show wallpaper", (dialog, which) -> {
+                prefs.edit().putBoolean("showHomeWallpaper", !enabled).apply();
+                if (!welcome && root != null) applyHomeBackground();
+                showSettings();
+            }).setNegativeButton("Back", (dialog, which) -> showSettings()).show();
+    }
     private void home(int y) {
-        welcome = false; base();
+        welcome = false; base(); applyHomeBackground();
         FrameLayout hero = heroFrame();
         LinearLayout face = column(); face.setPadding(dp(18), dp(13), dp(18), dp(9)); hero.addView(face);
         date = text("", 11, 0xffe0e2ff); date.setLetterSpacing(.15f); date.setFocusable(true); date.setOnClickListener(v -> openCalendar()); face.addView(date);
@@ -552,9 +576,9 @@ public class HomeActivity extends Activity {
         showMenu("Widgets", labels, actions);
     }
     private void showSettings() {
-        showSettingsPage("Launcher settings", "Make Alpharail yours", new String[]{"Theme", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Updates", "Set as Home"},
-            new String[]{prefs.getInt("theme", 0) == 1 ? "Black palette" : "White palette", "Style, size and shape", "Typeface and text size", "Favorites and alphabet placement", "Hidden apps and App Lock", "Move your settings to another device", updateAvailable() ? "Update available" : "Check for new versions", "Choose your default launcher"},
-            new String[]{"◐", "▦", "Aa", "A–Z", "◇", "⇅", "↑", "⌂"}, Arrays.asList(this::showThemeSettings, this::showIconSettings, this::showFontSettings,
+        showSettingsPage("Launcher settings", "Make Alpharail yours", new String[]{"Theme", "Home wallpaper", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Updates", "Set as Home"},
+            new String[]{prefs.getInt("theme", 0) == 1 ? "Black palette" : "White palette", prefs.getBoolean("showHomeWallpaper", false) ? "Showing Android wallpaper" : "Solid theme background", "Style, size and shape", "Typeface and text size", "Favorites and alphabet placement", "Hidden apps and App Lock", "Move your settings to another device", updateAvailable() ? "Update available" : "Check for new versions", "Choose your default launcher"},
+            new String[]{"◐", "▧", "▦", "Aa", "A–Z", "◇", "⇅", "↑", "⌂"}, Arrays.asList(this::showThemeSettings, this::showWallpaperSettings, this::showIconSettings, this::showFontSettings,
                 this::showListSettings, this::showPrivacySettings, this::backupMenu, this::showUpdateSettings, this::setHome), null);
     }
     private boolean checkingUpdates, manualUpdateRequested;
