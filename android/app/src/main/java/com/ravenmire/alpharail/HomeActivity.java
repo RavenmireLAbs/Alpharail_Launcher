@@ -17,6 +17,7 @@ import android.graphics.Typeface;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.*;
 import android.text.Editable;
@@ -115,8 +116,29 @@ public class HomeActivity extends Activity {
         state.putInt("beforeSearch", beforeSearch);
         state.putInt("scroll", scroll == null ? 0 : scroll.getScrollY());
     }
-    @Override protected void onStart() { super.onStart(); host.startListening(); handler.post(tick); }
-    @Override protected void onStop() { handler.removeCallbacks(tick);
+    private TextView chatsButton;
+    private final Map<String, Long> seenChatNotifications = new HashMap<>();
+    private final Runnable updateChatsDot = () -> refreshChatsDot(false);
+    private void refreshChatsDot(boolean acknowledge) {
+        if (chatsButton == null) return;
+        boolean unread = false;
+        boolean enabled = chatEnabled() && ChatNotifications.available();
+        if (enabled) {
+            Set<String> active = new HashSet<>();
+            for (StatusBarNotification item : ChatNotifications.current()) {
+                if (!chatAllowed(item.getPackageName())) continue;
+                String key = item.getKey(); long time = item.getPostTime();
+                active.add(key);
+                if (acknowledge) seenChatNotifications.put(key, time);
+                else if (!Objects.equals(seenChatNotifications.get(key), time)) unread = true;
+            }
+            seenChatNotifications.keySet().retainAll(active);
+        }
+        chatsButton.setText(unread ? "Chats  •" : "Chats");
+        chatsButton.setContentDescription(unread ? "Chats, new messages" : "Chats");
+    }
+    @Override protected void onStart() { super.onStart(); host.startListening(); handler.post(tick); ChatNotifications.observers.add(updateChatsDot); updateChatsDot.run(); }
+    @Override protected void onStop() { handler.removeCallbacks(tick); ChatNotifications.observers.remove(updateChatsDot);
         for (AlertDialog dialog : new ArrayList<>(privateChatDialogs)) dialog.dismiss();
         privateChatDialogs.clear(); host.stopListening(); super.onStop(); }
     @Override protected void onResume() { super.onResume(); if (!welcome && scroll != null && reloadApps()) refresh(); }
@@ -193,7 +215,7 @@ public class HomeActivity extends Activity {
         bar.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1));
         RoleManager role = android.os.Build.VERSION.SDK_INT >= 29 ? getSystemService(RoleManager.class) : null;
         if (role == null || !role.isRoleHeld(RoleManager.ROLE_HOME)) bar.addView(action("Set as Home", this::setHome));
-        TextView chats = action("Chats", this::showChats); chats.setTextColor(accent);
+        TextView chats = action("Chats", this::showChats); chatsButton = chats; chats.setTextColor(accent); updateChatsDot.run();
         chats.setPadding(dp(14), 0, dp(14), 0);
         chats.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x203448ce), rounded(surface, 24), null));
         bar.addView(chats);
@@ -1239,13 +1261,32 @@ public class HomeActivity extends Activity {
                 }).show();
             return;
         }
+        refreshChatsDot(true);
         LinearLayout content = column(); content.setPadding(dp(18), dp(8), dp(18), dp(8));
         TextView note = text("Conversations from active notifications", 13, moss); content.addView(note);
         ScrollView body = new ScrollView(this); LinearLayout rows = column(); body.addView(rows);
         content.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout buttons = new LinearLayout(this); content.addView(buttons);
         AlertDialog panel = new AlertDialog.Builder(this).setTitle("Chats").setView(content).setNegativeButton("Close", null).create();
-        Runnable redraw = () -> fillChats(rows);
+        String[] filter = {null};
+        TextView[] filterLabel = {null};
+        TextView appFilter = action("App: All", () -> {
+            List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+            labels.add("All messaging apps");
+            actions.add(() -> { filter[0] = null; filterLabel[0].setText("App: All"); fillChats(rows, null); });
+            Set<String> packages = new LinkedHashSet<>();
+            for (StatusBarNotification item : ChatNotifications.current()) {
+                if (chatAllowed(item.getPackageName())) packages.add(item.getPackageName());
+            }
+            for (String pkg : packages) {
+                labels.add(chatAppName(pkg)); actions.add(() -> { filter[0] = pkg; filterLabel[0].setText("App: " + chatAppName(pkg)); fillChats(rows, pkg); });
+            }
+            AlertDialog picker = new AlertDialog.Builder(this).setTitle("Filter Chats")
+                .setItems(labels.toArray(new String[0]), (d,i) -> actions.get(i).run()).setNegativeButton("Cancel", null).create();
+            showPrivateChatDialog(picker);
+        });
+        filterLabel[0] = appFilter; content.addView(appFilter, 1);
+        Runnable redraw = () -> fillChats(rows, filter[0]);
         boolean[] queued = {false};
         Runnable refreshInbox = () -> { queued[0] = false; redraw.run(); };
         Runnable live = () -> { if (!queued[0]) { queued[0] = true; handler.postDelayed(refreshInbox, 180); } };
@@ -1258,22 +1299,72 @@ public class HomeActivity extends Activity {
         });
         redraw.run();
     }
-    private void fillChats(LinearLayout rows) {
+    private String chatPinId(StatusBarNotification item) {
+        String shortcut = item.getNotification().getShortcutId();
+        if (shortcut == null || shortcut.isEmpty()) return null;
+        return UUID.nameUUIDFromBytes(ChatNotifications.conversationKey(item).getBytes(StandardCharsets.UTF_8)).toString();
+    }
+    private Drawable chatSourceIcon(String pkg) {
+        try { return getPackageManager().getApplicationIcon(pkg); }
+        catch (android.content.pm.PackageManager.NameNotFoundException ignored) { return getPackageManager().getDefaultActivityIcon(); }
+    }
+    private Drawable chatAvatar(StatusBarNotification item, boolean previews) {
+        if (Build.VERSION.SDK_INT < 28 || !visibleChatText(item, previews)) return null;
+        try {
+            Parcelable[] messages = item.getNotification().extras.getParcelableArray(Notification.EXTRA_MESSAGES);
+            if (messages == null) return null;
+            for (int i = messages.length - 1; i >= Math.max(0, messages.length - 10); i--) {
+                if (!(messages[i] instanceof Bundle)) continue;
+                Parcelable sender = ((Bundle)messages[i]).getParcelable("sender_person");
+                if (!(sender instanceof android.app.Person)) continue;
+                android.graphics.drawable.Icon icon = ((android.app.Person)sender).getIcon();
+                if (icon == null) continue;
+                int type = icon.getType();
+                if (type == android.graphics.drawable.Icon.TYPE_BITMAP || type == android.graphics.drawable.Icon.TYPE_RESOURCE
+                    || type == android.graphics.drawable.Icon.TYPE_ADAPTIVE_BITMAP) return icon.loadDrawable(this);
+            }
+        } catch (RuntimeException ignored) { }
+        return null;
+    }
+    private LinearLayout chatIdentity(StatusBarNotification item, boolean previews) {
+        LinearLayout identity = new LinearLayout(this); identity.setGravity(Gravity.CENTER_VERTICAL);
+        Drawable avatar = chatAvatar(item, previews);
+        if (avatar != null) {
+            ImageView photo = new ImageView(this); photo.setImageDrawable(avatar); photo.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            photo.setBackground(rounded(surface, 24)); photo.setClipToOutline(true);
+            photo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            identity.addView(photo, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        }
+        ImageView source = new ImageView(this); source.setImageDrawable(chatSourceIcon(item.getPackageName()));
+        source.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(avatar == null ? 36 : 23), dp(avatar == null ? 36 : 23));
+        size.setMarginStart(dp(avatar == null ? 0 : 5)); size.setMarginEnd(dp(10)); identity.addView(source, size);
+        return identity;
+    }
+    private void fillChats(LinearLayout rows, String filter) {
         rows.removeAllViews();
         boolean showText = prefs.getBoolean("chatPreviews", false);
+        Set<String> pins = saved("chatPins");
+        List<Map.Entry<String, List<StatusBarNotification>>> entries = new ArrayList<>();
+        if (chatEnabled()) entries.addAll(ChatNotifications.conversations().entrySet());
+        entries.sort(Comparator.comparing(entry -> !pins.contains(chatPinId(entry.getValue().get(0)))));
         int count = 0;
-        if (chatEnabled()) for (Map.Entry<String, List<StatusBarNotification>> entry : ChatNotifications.conversations().entrySet()) {
+        for (Map.Entry<String, List<StatusBarNotification>> entry : entries) {
             StatusBarNotification item = entry.getValue().get(0);
-            if (!chatAllowed(item.getPackageName())) continue;
-            TextView thread = action(chatTitle(item, showText) + "  ›", () -> showChatThread(entry.getKey(), item.getPackageName()));
-            rows.addView(thread);
+            String pkg = item.getPackageName();
+            if ((filter != null && !filter.equals(pkg)) || !chatAllowed(pkg)) continue;
+            boolean pinned = pins.contains(chatPinId(item));
+            LinearLayout row = chatIdentity(item, showText); row.setPadding(0, dp(6), 0, dp(8));
+            LinearLayout detail = column(); row.addView(detail, new LinearLayout.LayoutParams(0, -2, 1));
+            TextView thread = action((pinned ? "★  " : "") + chatTitle(item, showText) + "  ›", () -> showChatThread(entry.getKey(), pkg, () -> fillChats(rows, filter)));
+            thread.setMaxLines(2); detail.addView(thread);
             CharSequence preview = visibleChatText(item, showText) ? latestChatText(item.getNotification()) : null;
-            TextView subtitle = text(chatAppName(item.getPackageName()) + (preview == null ? " · Preview hidden or unavailable" : " · " + chatText(preview)), 14, moss);
-            subtitle.setMaxLines(2); rows.addView(subtitle);
+            TextView subtitle = text(chatAppName(pkg) + (preview == null ? " · Preview hidden or unavailable" : " · " + chatText(preview)), 14, moss);
+            subtitle.setMaxLines(2); detail.addView(subtitle); rows.addView(row);
             View separator = new View(this); separator.setBackgroundColor(dividerColor); rows.addView(separator, new LinearLayout.LayoutParams(-1, dp(1)));
             if (++count == 50) break;
         }
-        if (count == 0) rows.addView(text(ChatNotifications.available() ? "No active messages from included apps." : "Waiting for notification access. Try Refresh after enabling Alpharail Chats in Android settings.", 15, ink));
+        if (count == 0) rows.addView(text(ChatNotifications.available() ? (filter == null ? "No active messages from included apps." : "No active messages from " + chatAppName(filter) + ".") : "Waiting for notification access. Try Refresh after enabling Alpharail Chats in Android settings.", 15, ink));
     }
     private boolean visibleChatText(StatusBarNotification item, boolean enabled) {
         Notification n = item.getNotification();
@@ -1296,7 +1387,7 @@ public class HomeActivity extends Activity {
         }
         return n.extras.getCharSequence(Notification.EXTRA_TEXT);
     }
-    private void showChatThread(String id, String pkg) {
+    private void showChatThread(String id, String pkg, Runnable refreshInbox) {
         if (!chatEnabled() || !chatAllowed(pkg)) return;
         List<StatusBarNotification> thread = ChatNotifications.conversations().get(id);
         if (thread == null || thread.isEmpty() || !pkg.equals(thread.get(0).getPackageName())) {
@@ -1305,7 +1396,9 @@ public class HomeActivity extends Activity {
         boolean previews = prefs.getBoolean("chatPreviews", false);
         StatusBarNotification latest = thread.get(0);
         LinearLayout content = column(); content.setPadding(dp(20), dp(8), dp(20), dp(8));
-        content.addView(text(chatAppName(pkg) + " · From active notifications", 13, moss));
+        LinearLayout identity = chatIdentity(latest, previews);
+        identity.addView(text(chatAppName(pkg) + " · From active notifications", 13, moss), new LinearLayout.LayoutParams(0, -2, 1));
+        content.addView(identity);
         ScrollView scroll = new ScrollView(this); LinearLayout messages = column(); scroll.addView(messages);
         content.addView(scroll, new LinearLayout.LayoutParams(-1, dp(210)));
         Set<String> seen = new HashSet<>();
@@ -1323,6 +1416,19 @@ public class HomeActivity extends Activity {
         }
         if (seen.isEmpty()) messages.addView(text("Message text is hidden or unavailable. You can change previews in Chat settings.", 15, moss));
         AlertDialog detail = new AlertDialog.Builder(this).setTitle(chatTitle(latest, previews)).setView(content).setNegativeButton("Back", null).create();
+        String pin = chatPinId(latest);
+        if (pin != null) {
+            TextView[] control = {null};
+            control[0] = action(saved("chatPins").contains(pin) ? "Unpin conversation" : "Pin conversation", () -> {
+                Set<String> pins = saved("chatPins");
+                if (!pins.remove(pin)) {
+                    if (pins.size() >= 100) { Toast.makeText(this, "Unpin a conversation before adding another", Toast.LENGTH_SHORT).show(); return; }
+                    pins.add(pin);
+                }
+                store("chatPins", pins); control[0].setText(pins.contains(pin) ? "Unpin conversation" : "Pin conversation"); refreshInbox.run();
+            });
+            content.addView(control[0]);
+        }
         content.addView(action("Open " + chatAppName(pkg), () -> openChatApp(pkg)));
         if (chatContentIntent(latest) != null) content.addView(action("Open conversation", () -> openChat(latest.getKey(), id, pkg)));
         for (StatusBarNotification item : thread) if (ChatNotifications.replyAction(item) != null) {
@@ -1396,9 +1502,14 @@ public class HomeActivity extends Activity {
         Toast.makeText(this, "This message action is no longer available", Toast.LENGTH_SHORT).show();
     }
     private void showChatSettings() {
-        showMenu("Chat settings", Arrays.asList(prefs.getBoolean("chatPreviews", false) ? "Hide message previews" : "Show message previews", "Included apps", "Android notification access", "Turn off Chats"), Arrays.asList(
+        showMenu("Chat settings", Arrays.asList(prefs.getBoolean("chatPreviews", false) ? "Hide message previews" : "Show message previews", "Included apps", "Clear conversation pins", "Android notification access", "Turn off Chats"), Arrays.asList(
             () -> { prefs.edit().putBoolean("chatPreviews", !prefs.getBoolean("chatPreviews", false)).apply(); showChats(); },
             this::showChatApps,
+            () -> new AlertDialog.Builder(this).setTitle("Clear all conversation pins?")
+                .setMessage("This only removes pins from Alpharail. Your messages stay in their original apps.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Clear pins", (d,w) -> {
+                    prefs.edit().remove("chatPins").apply(); showChats();
+                }).show(),
             () -> startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)),
             () -> { prefs.edit().putBoolean("chatsEnabled", false).putBoolean("chatPreviews", false).apply(); startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }));
     }
