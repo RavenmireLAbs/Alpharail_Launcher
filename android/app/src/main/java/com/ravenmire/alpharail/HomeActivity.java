@@ -92,6 +92,11 @@ public class HomeActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         prefs = getSharedPreferences("still", MODE_PRIVATE);
+        // Only initialize a genuinely fresh install; never override existing choices.
+        if (prefs.getAll().isEmpty()) {
+            prefs.edit().putBoolean("showHomeWallpaper", true)
+                .putInt("bundledWallpaper", -1).apply();
+        }
         boolean black = prefs.getInt("theme", 0) == 1;
         if (black) setTheme(getResources().getIdentifier("StillBlackTheme", "style", getPackageName()));
         super.onCreate(state);
@@ -232,16 +237,31 @@ public class HomeActivity extends Activity {
         return frame;
     }
     private void welcome() {
-        welcome = true; base(); root.setGravity(Gravity.CENTER_VERTICAL);
+        welcome = true; base();
+        ScrollView guide = new ScrollView(this); guide.setFillViewport(true);
+        LinearLayout content = column(); content.setGravity(Gravity.CENTER_VERTICAL);
+        content.setPadding(0, dp(12), 0, dp(24));
+        guide.addView(content); root.addView(guide, new LinearLayout.LayoutParams(-1, -1));
         FrameLayout cover = heroFrame();
         LinearLayout headline = column(); headline.setPadding(dp(22), dp(24), dp(22), dp(20)); cover.addView(headline);
         TextView wordmark = text("ALPHARAIL  /  INDEX", 12, 0xffd9dcff); wordmark.setLetterSpacing(.19f); headline.addView(wordmark);
-        TextView title = text("Make room\nfor less.", 46, 0xffffffff);
+        TextView title = text("Your apps.\nOne screen.", 38, 0xffffffff);
         title.setLetterSpacing(-.045f); title.setTypeface(null, Typeface.BOLD);
-        title.setPadding(0, dp(30), 0, 0); headline.addView(title);
-        root.addView(cover, new LinearLayout.LayoutParams(-1, -2));
-        TextView detail = text("Every app, one screen.\n\nSearch or scroll the alphabetical list. Hold an empty area for widgets and launcher settings.", 17, moss);
-        detail.setPadding(0, dp(14), dp(8), dp(20)); root.addView(detail);
+        title.setPadding(0, dp(18), 0, 0); headline.addView(title);
+        content.addView(cover, new LinearLayout.LayoutParams(-1, -2));
+        TextView intro = text("Your wallpaper stays. Here’s how to get started.", 16, moss);
+        intro.setPadding(0, dp(16), 0, dp(8)); content.addView(intro);
+        String[][] tips = {
+            {"01  Find an app", "Search by name or initials, or use the A–Z rail to jump through your apps."},
+            {"02  Keep favorites close", "Long-press an app to add it to Favorites. Tap the Favorites heading to collapse or expand it."},
+            {"03  Make it yours", "Hold an empty area for Widgets and Launcher settings. Your current wallpaper stays unchanged. For White or Black, choose Home wallpaper → No wallpaper, then Theme."}
+        };
+        for (String[] tip : tips) {
+            TextView heading = text(tip[0], 16, ink); heading.setTypeface(null, Typeface.BOLD);
+            heading.setPadding(0, dp(12), 0, dp(4)); content.addView(heading);
+            TextView body = text(tip[1], 15, moss); body.setLineSpacing(dp(2), 1);
+            content.addView(body);
+        }
         Button open = new Button(this);
         open.setText("Open launcher"); open.setAllCaps(false);
         open.setTextColor(0xffffffff); open.setTextSize(16);
@@ -250,7 +270,8 @@ public class HomeActivity extends Activity {
         open.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x40ffffff), fill, null));
         open.setMinHeight(dp(52)); open.setPadding(dp(18), dp(8), dp(18), dp(8));
         open.setOnClickListener(v -> { prefs.edit().putBoolean("welcome", true).apply(); home(0); });
-        root.addView(open, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(-1, -2);
+        openParams.topMargin = dp(24); content.addView(open, openParams);
     }
     private static final String[] WALLPAPERS = {"Porcelain", "Fold", "Pearl", "Glacier", "Linen", "Eclipse", "Fault", "Obsidian", "Ink", "Orbit", "Obsidian Amethyst", "Obsidian Copper", "Ink Aurora", "Ink Ember"};
     private boolean homeShowsWallpaper() { return prefs.getBoolean("showHomeWallpaper", false); }
@@ -512,7 +533,7 @@ public class HomeActivity extends Activity {
         }, "alpharail-set-wallpaper").start();
     }
     private void home(int y) {
-        welcome = false; configureHomeWindow(); base(); applyHomeBackground();
+        welcome = false; configureHomeWindow(); updateRailColor(); base(); applyHomeBackground();
         FrameLayout hero = homeShowsWallpaper() ? new FrameLayout(this) : heroFrame();
         LinearLayout face = column(); face.setPadding(dp(18), dp(13), dp(18), dp(9)); hero.addView(face);
         date = text("", 11, 0xffe0e2ff); date.setLetterSpacing(.15f); date.setFocusable(true); date.setOnClickListener(v -> openCalendar()); face.addView(date);
@@ -606,8 +627,8 @@ public class HomeActivity extends Activity {
         });
         FrameLayout appFrame = new FrameLayout(this); root.addView(appFrame, new LinearLayout.LayoutParams(-1, 0, 1));
         appArea = new LinearLayout(this); appArea.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); appFrame.addView(appArea, new FrameLayout.LayoutParams(-1, -1));
-        letterBubble = text("", 30, 0xffffffff); letterBubble.setGravity(Gravity.CENTER);
-        letterBubble.setBackground(rounded(PRIMARY, 23)); letterBubble.setVisibility(View.GONE);
+        letterBubble = text("", 30, railTextColor()); letterBubble.setGravity(Gravity.CENTER);
+        letterBubble.setBackground(rounded(railHighlight, 23)); letterBubble.setVisibility(View.GONE);
         letterBubble.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         appFrame.addView(letterBubble, new FrameLayout.LayoutParams(dp(68), dp(68), Gravity.CENTER));
         scroll = new ScrollView(this); list = column(); scroll.addView(list); list.setLayoutDirection(getResources().getConfiguration().getLayoutDirection());
@@ -694,6 +715,13 @@ public class HomeActivity extends Activity {
     }
     private ComponentName component(ResolveInfo app) { return new ComponentName(app.activityInfo.packageName, app.activityInfo.name); }
     private String key(ResolveInfo app) { return component(app).flattenToString(); }
+    private String appLetter(String label) {
+        String name = label.trim();
+        if (name.isEmpty()) return "#";
+        int first = name.codePointAt(0);
+        if (first >= 'a' && first <= 'z') first -= 'a' - 'A';
+        return first >= 'A' && first <= 'Z' ? Character.toString((char) first) : "#";
+    }
     private boolean reloadApps() {
         List<ResolveInfo> current = new ArrayList<>(getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0));
         current.removeIf(app -> app.activityInfo.packageName.equals(getPackageName()));
@@ -701,6 +729,11 @@ public class HomeActivity extends Activity {
         originalLabels.clear(); normalizedLabels.clear();
         Collator sorter = Collator.getInstance();
         current.sort((a,b) -> {
+            String aLetter = appLetter(label(a)), bLetter = appLetter(label(b));
+            int groupOrder = Integer.compare(aLetter.equals("#") ? 1 : 0, bLetter.equals("#") ? 1 : 0);
+            if (groupOrder != 0) return groupOrder;
+            int letterOrder = aLetter.compareTo(bLetter);
+            if (letterOrder != 0) return letterOrder;
             int order = sorter.compare(label(a), label(b));
             return order == 0 ? key(a).compareTo(key(b)) : order;
         });
@@ -790,7 +823,7 @@ public class HomeActivity extends Activity {
             for (ResolveInfo app : apps) {
                 if (hidden.contains(key(app))) continue;
                 String name = label(app).trim();
-                String letter = name.isEmpty() ? "#" : new String(Character.toChars(name.codePointAt(0))).toUpperCase(Locale.getDefault());
+                String letter = appLetter(name);
                 if (!letter.equals(previous)) { section(letter, seen.add(letter) ? letter : null, letter); previous = letter; }
                 row(app, favorites.contains(key(app)), false);
             }
@@ -1054,9 +1087,42 @@ public class HomeActivity extends Activity {
             () -> setting("Font size", "fontSize", new String[]{"Small", "Default", "Large", "Extra large"}, 1, this::showFontSettings),
             () -> setting("Typeface", "fontShape", new String[]{"System", "Rounded", "Serif", "Monospace"}, 0, this::showFontSettings)));
     }
+    private int railHighlight = PRIMARY;
+    private static final String[] RAIL_COLOR_NAMES = {"Red", "Coral", "Orange", "Amber", "Gold", "Yellow", "Lime", "Leaf", "Green", "Forest", "Mint", "Teal", "Turquoise", "Cyan", "Sky", "Blue", "Navy", "Indigo", "Violet", "Purple", "Lavender", "Magenta", "Pink", "Rose", "Burgundy", "Brown", "Sand", "Slate", "Charcoal", "White"};
+    private static final int[] RAIL_COLORS = {0xffd32f2f,0xffff7043,0xffef6c00,0xffffa000,0xffd4af37,0xffffeb3b,0xffc0ca33,0xff7cb342,0xff388e3c,0xff1b5e20,0xff80cbc4,0xff00897b,0xff40e0d0,0xff00acc1,0xff81d4fa,0xff1976d2,0xff0d274d,0xff3949ab,0xff7e57c2,0xff8e24aa,0xffb39ddb,0xffd81b60,0xfff48fb1,0xffad1457,0xff6d2039,0xff795548,0xffd7ccc8,0xff607d8b,0xff263238,0xfffafafa};
+    private int railTextColor() {
+        return android.graphics.Color.valueOf(railHighlight).luminance() > .179 ? 0xff111111 : 0xffffffff;
+    }
+    private void updateRailColor() {
+        int selected = prefs.getInt("railColor", -1);
+        railHighlight = selected >= 0 && selected < RAIL_COLORS.length ? RAIL_COLORS[selected] : accent;
+        if (selected >= 0 || !homeShowsWallpaper() || Build.VERSION.SDK_INT < 27) return;
+        try {
+            int bundled = bundledWallpaper();
+            WallpaperColors colors = bundled >= 0
+                ? WallpaperColors.fromDrawable(getDrawable(wallpaperRes(bundled)))
+                : WallpaperManager.getInstance(this).getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
+            if (colors != null) railHighlight = colors.getPrimaryColor().toArgb() | 0xff000000;
+        } catch (RuntimeException ignored) { /* Keep the theme accent when colors are unavailable. */ }
+    }
+    private void showRailColorSettings() {
+        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
+        labels.add("Wallpaper major color" + (prefs.getInt("railColor", -1) == -1 ? " · Active" : ""));
+        actions.add(() -> applyRailColor(-1));
+        for (int i = 0; i < RAIL_COLORS.length; i++) {
+            final int color = i;
+            labels.add(RAIL_COLOR_NAMES[i] + (prefs.getInt("railColor", -1) == i ? " · Active" : ""));
+            actions.add(() -> applyRailColor(color));
+        }
+        showMenu("Alphabet color", labels, actions);
+    }
+    private void applyRailColor(int selected) {
+        prefs.edit().putInt("railColor", selected).apply();
+        rebuildHomePreservingScroll(); showRailColorSettings();
+    }
     private void showListSettings() {
-        showSettingsGroup("App list", Arrays.asList("Reorder Favorites", "Collections", "Alphabet side"), Arrays.asList(
-            this::reorderFavorites, this::manageCollections, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0, this::showListSettings)));
+        showSettingsGroup("App list", Arrays.asList("Reorder Favorites", "Collections", "Alphabet side", "Alphabet color"), Arrays.asList(
+            this::reorderFavorites, this::manageCollections, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0, this::showListSettings), this::showRailColorSettings));
     }
     private static final class AppCollection {
         final String name;
@@ -1534,10 +1600,10 @@ public class HomeActivity extends Activity {
             jump.setTag(title); jump.setOnClickListener(v -> jumpToLetter(jump, true));
             jump.setGravity(Gravity.CENTER); jump.setMinHeight(0); jump.setIncludeFontPadding(false); jump.setTextSize(12);
             jump.setAutoSizeTextTypeUniformWithConfiguration(8, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-            jump.setTextColor(new ColorStateList(new int[][]{new int[]{android.R.attr.state_selected}, new int[]{}}, new int[]{0xffffffff, homeShowsWallpaper() ? (lightHomeWallpaper() ? 0xff191919 : 0xffffffff) : moss}));
+            jump.setTextColor(new ColorStateList(new int[][]{new int[]{android.R.attr.state_selected}, new int[]{}}, new int[]{railTextColor(), homeShowsWallpaper() ? (lightHomeWallpaper() ? 0xff191919 : 0xffffffff) : moss}));
             if (homeShowsWallpaper()) jump.setShadowLayer(dp(3), 0, dp(1), lightHomeWallpaper() ? 0xffffffff : 0xff000000);
             android.graphics.drawable.StateListDrawable state = new android.graphics.drawable.StateListDrawable();
-            state.addState(new int[]{android.R.attr.state_selected}, rounded(PRIMARY, 12));
+            state.addState(new int[]{android.R.attr.state_selected}, rounded(railHighlight, 12));
             state.addState(new int[]{}, new ColorDrawable(android.graphics.Color.TRANSPARENT)); jump.setBackground(state);
             jump.setContentDescription("Jump to " + description); index.addView(jump, new LinearLayout.LayoutParams(-1, 0, 1));
         }

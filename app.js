@@ -1,5 +1,5 @@
 const apps = {
- A:[['Alarm','◷'],['Amazon','a'],['Authenticator','⬡']], B:[['Books','▤'],['Browser','◎']], C:[['Calculator','▦'],['Calendar','▣'],['Camera','◉'],['Clock','◷'],['Contacts','♙']], D:[['Downloads','⇩'],['Drive','△']], F:[['Files','▱']], G:[['Gallery','▧'],['Gmail','✉']], K:[['Keep','◇']], M:[['Maps','⌖'],['Messages','▰'],['Music','♫']], N:[['Notes','≡']], P:[['Phone','☎'],['Photos','✿'],['Play Store','▷']], R:[['Recorder','●']], S:[['Settings','⚙'],['Spotify','≋']], T:[['Tasks','✓']], W:[['Weather','☀'],['WhatsApp','◌']], Y:[['YouTube','▶']]
+ A:[['Alarm','◷'],['Amazon','a'],['Authenticator','⬡']], B:[['Books','▤'],['Browser','◎']], C:[['Calculator','▦'],['Calendar','▣'],['Camera','◉'],['Clock','◷'],['Contacts','♙']], D:[['Downloads','⇩'],['Drive','△']], F:[['Files','▱']], G:[['Gallery','▧'],['Gmail','✉']], K:[['Keep','◇']], M:[['Maps','⌖'],['Messages','▰'],['Music','♫']], N:[['Notes','≡']], P:[['Phone','☎'],['Photos','✿'],['Play Store','▷']], R:[['Recorder','●']], S:[['Settings','⚙'],['Spotify','≋']], T:[['Tasks','✓']], W:[['Weather','☀'],['WhatsApp','◌']], Y:[['YouTube','▶']], '#':[['2FAS Auth','⬡']]
 };
 const $ = id => document.getElementById(id);
 const list = $('list'), rail = $('alphabet'), search = $('search'), dialog = $('menu');
