@@ -87,9 +87,7 @@ public class HomeActivity extends Activity {
                 date.setText(day); date.setContentDescription(day + ", open Calendar");
             }
             if (!welcome && prefs.getBoolean("scheduledTheme", false) && !homeShowsWallpaper()) {
-                int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-                int start = prefs.getInt("nightStart", 20), end = prefs.getInt("nightEnd", 7);
-                boolean night = start > end ? hour >= start || hour < end : hour >= start && hour < end;
+                boolean night = scheduledNight();
                 if (prefs.getInt("theme", 0) != (night ? 1 : 0)) { recreate(); return; }
             }
             handler.postDelayed(this, 15000);
@@ -104,9 +102,7 @@ public class HomeActivity extends Activity {
                 .putInt("bundledWallpaper", -1).apply();
         }
         if (prefs.getBoolean("scheduledTheme", false) && !prefs.getBoolean("showHomeWallpaper", false)) {
-            int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-            int start = prefs.getInt("nightStart", 20), end = prefs.getInt("nightEnd", 7);
-            boolean night = start > end ? hour >= start || hour < end : hour >= start && hour < end;
+            boolean night = scheduledNight();
             prefs.edit().putInt("theme", night ? 1 : 0).apply();
         }
         boolean black = prefs.getInt("theme", 0) == 1;
@@ -965,10 +961,41 @@ public class HomeActivity extends Activity {
         showMenu("Widgets", labels, actions);
     }
     private void showSettings() {
-        showSettingsPage("Launcher settings", "Make Alpharail yours", new String[]{"Theme", "Home wallpaper", "Wallpaper presets", "Clock", "Icons", "Fonts", "App list", "Privacy", "Backup and restore", "Updates", "Set as Home"},
-            new String[]{homeShowsWallpaper() ? "Unavailable while wallpaper is on" : (prefs.getInt("theme", 0) == 1 ? "Black palette" : "White palette"), homeShowsWallpaper() ? (bundledWallpaper() < 0 ? "Showing Android wallpaper" : WALLPAPERS[bundledWallpaper()]) : "Solid theme background", "Save and switch looks", "Size, date and alarm time", "Style, size and shape", "Typeface and text size", "Favorites and alphabet placement", "Hidden apps and App Lock", "Move your settings to another device", updateAvailable() ? "Update available" : "Check for new versions", "Choose your default launcher"},
-            new String[]{"◐", "▧", "✦", "◷", "▦", "Aa", "A–Z", "◇", "⇅", "↑", "⌂"}, Arrays.asList(homeShowsWallpaper() ? null : this::showThemeSettings, this::showWallpaperSettings, this::showWallpaperPresets, this::showClockSettings, this::showIconSettings, this::showFontSettings,
-                this::showListSettings, this::showPrivacySettings, this::backupMenu, this::showUpdateSettings, this::setHome), null);
+        showSettingsPage("Launcher settings", "Everything in its place",
+            new String[]{"Appearance", "Home & apps", "Notifications & Chats", "Privacy", "Accessibility", "Backup and restore", "System"},
+            new String[]{"Wallpaper, themes, schedule, icons and fonts", "Clock, widgets, Favorites, alphabet and work apps", "App dots, messaging and notification access", "Hidden apps and App Lock", "Alphabet size, motion and text contrast", "Export, import and appearance presets", "Updates and default launcher"},
+            new String[]{"◐", "⌂", "▤", "◇", "Aa", "⇅", "⚙"},
+            Arrays.asList(this::showAppearanceSettings, this::showHomeAppSettings, this::showNotificationSettings,
+                this::showPrivacySettings, this::showAccessibilitySettings, this::backupMenu, this::showSystemSettings), null);
+    }
+    private void showAppearanceSettings() {
+        showSettingsGroup("Appearance", Arrays.asList("Home wallpaper", "Wallpaper presets", "Theme", "Theme schedule", "Icons", "Fonts"),
+            Arrays.asList(this::showWallpaperSettings, this::showWallpaperPresets,
+                () -> { if (homeShowsWallpaper()) {
+                    launcherDialog().setTitle("Theme").setMessage("White and Black themes are available when wallpaper is off. Your saved theme is restored when you choose No wallpaper.")
+                        .setPositiveButton("Wallpaper settings", (d,w) -> showWallpaperSettings()).setNegativeButton("Back", (d,w) -> showAppearanceSettings()).show();
+                } else showThemeSettings(); }, this::showSchedule, this::showIconSettings, this::showFontSettings));
+    }
+    private void showHomeAppSettings() {
+        showSettingsGroup("Home & apps", Arrays.asList("Clock", "Widgets", "Reorder Favorites", "Collections", "Alphabet", "Work apps"),
+            Arrays.asList(this::showClockSettings, this::showWidgets, this::reorderFavorites, this::manageCollections, this::showListSettings, this::showWorkSettings));
+    }
+    private void showSystemSettings() {
+        showSettingsGroup("System", Arrays.asList("Updates", "Set as Home"), Arrays.asList(this::showUpdateSettings, this::setHome));
+    }
+    private String enabledLabel(String title, String key) {
+        return title + ": " + (prefs.getBoolean(key, false) ? "On" : "Off");
+    }
+    private void showAccessibilitySettings() {
+        showSettingsGroup("Accessibility", Arrays.asList(enabledLabel("Larger alphabet", "largeRail"), enabledLabel("Reduce animations", "reduceMotion"), enabledLabel("Stronger text contrast", "strongText")),
+            Arrays.asList(() -> toggleExtra("largeRail"), () -> toggleExtra("reduceMotion"), () -> toggleExtra("strongText")));
+    }
+    private void showNotificationSettings() {
+        showSettingsGroup("Notifications & Chats", Arrays.asList(enabledLabel("App notification dots", "appDots"), "Exclude apps from dots", "Chats", "Notification access"),
+            Arrays.asList(() -> toggleExtra("appDots"),
+                () -> showAppChoices("Exclude from notification dots", "Checked apps will not show a notification dot.", "dotExcluded", this::showNotificationSettings),
+                () -> { if (chatEnabled()) showChatSettings(); else showChats(); },
+                () -> startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))));
     }
     private boolean checkingUpdates, manualUpdateRequested;
     private String installedVersion() {
@@ -1190,8 +1217,8 @@ public class HomeActivity extends Activity {
         rebuildHomePreservingScroll(); showRailColorSettings();
     }
     private void showListSettings() {
-        showSettingsGroup("App list", Arrays.asList("Reorder Favorites", "Collections", "Alphabet side", "Alphabet color", "More options"), Arrays.asList(
-            this::reorderFavorites, this::manageCollections, () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0, this::showListSettings), this::showRailColorSettings, this::showExtraSettings));
+        showSettingsGroup("Alphabet", Arrays.asList("Alphabet side", "Alphabet color"), Arrays.asList(
+            () -> setting("Alphabet side", "railSide", new String[]{"Right", "Left"}, 0, this::showListSettings), this::showRailColorSettings));
     }
     private void addSearchShortcut(String label, String url) {
         TextView button = action(label, () -> {
@@ -1202,32 +1229,45 @@ public class HomeActivity extends Activity {
     }
     private void toggleExtra(String key) {
         prefs.edit().putBoolean(key, !prefs.getBoolean(key, false)).apply();
-        rowCache.evictAll(); rebuildHomePreservingScroll(); showExtraSettings();
+        rowCache.evictAll(); rebuildHomePreservingScroll();
+        if ("showWork".equals(key)) showWorkSettings();
+        else if ("appDots".equals(key)) showNotificationSettings();
+        else showAccessibilitySettings();
     }
-    private void showExtraSettings() {
-        showMenu("More options", Arrays.asList(
-            "Work apps: " + (prefs.getBoolean("showWork", false) ? "Shown" : "Hidden"),
-            "App notification dots: " + (prefs.getBoolean("appDots", false) ? "On" : "Off"),
-            "Exclude apps from dots", "Notification access",
-            "Larger alphabet targets: " + prefs.getBoolean("largeRail", false),
-            "Reduce animations: " + prefs.getBoolean("reduceMotion", false),
-            "Stronger wallpaper text: " + prefs.getBoolean("strongText", false),
-            "Scheduled theme"), Arrays.asList(
-            () -> toggleExtra("showWork"), () -> toggleExtra("appDots"),
-            () -> showAppChoices("Exclude from notification dots", "Checked apps will not show a notification dot.", "dotExcluded", this::showExtraSettings),
-            () -> startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)),
-            () -> toggleExtra("largeRail"), () -> toggleExtra("reduceMotion"), () -> toggleExtra("strongText"), this::showSchedule));
+    private int scheduleMinutes(String key, int fallback) {
+        return prefs.getInt(key, fallback) * 60 + prefs.getInt(key + "Minute", 0);
+    }
+    private String scheduleTime(String key, int fallback) {
+        int minutes = scheduleMinutes(key, fallback);
+        return String.format(Locale.getDefault(), "%02d:%02d", minutes / 60, minutes % 60);
+    }
+    private boolean scheduledNight() {
+        Calendar now = Calendar.getInstance();
+        int minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+        int start = scheduleMinutes("nightStart", 20), end = scheduleMinutes("nightEnd", 7);
+        return start > end ? minute >= start || minute < end : minute >= start && minute < end;
+    }
+    private void showWorkSettings() {
+        launcherDialog().setTitle("Work apps")
+            .setMessage("Apps installed in an Android work profile appear automatically when shown. Alpharail cannot create a managed profile or move personal apps into one. Set up your organization’s work profile using its management app or Android settings. For a custom group of personal apps, use Home & apps → Collections.")
+            .setPositiveButton(prefs.getBoolean("showWork", false) ? "Hide work apps" : "Show work apps", (d,w) -> toggleExtra("showWork"))
+            .setNeutralButton("Android settings", (d,w) -> {
+                try { startActivity(new Intent(android.provider.Settings.ACTION_SYNC_SETTINGS)); }
+                catch (ActivityNotFoundException | SecurityException e) {
+                    Toast.makeText(this, "Open Android Settings to manage accounts and work profiles", Toast.LENGTH_LONG).show();
+                }
+            }).setNegativeButton("Back", (d,w) -> showHomeAppSettings()).show();
     }
     private void showSchedule() {
         showMenu("Scheduled theme", Arrays.asList("Schedule: " + (prefs.getBoolean("scheduledTheme", false) ? "On" : "Off"),
-            "Black starts at " + prefs.getInt("nightStart", 20) + ":00", "White starts at " + prefs.getInt("nightEnd", 7) + ":00"), Arrays.asList(
+            "Black starts at " + scheduleTime("nightStart", 20), "White starts at " + scheduleTime("nightEnd", 7)), Arrays.asList(
             () -> { prefs.edit().putBoolean("scheduledTheme", !prefs.getBoolean("scheduledTheme", false)).apply(); recreate(); },
             () -> pickScheduleHour("nightStart", 20), () -> pickScheduleHour("nightEnd", 7)));
     }
     private void pickScheduleHour(String key, int fallback) {
         new android.app.TimePickerDialog(this, (view,hour,minute) -> {
-            prefs.edit().putInt(key, hour).apply(); showSchedule();
-        }, prefs.getInt(key, fallback), 0, true).show();
+            prefs.edit().putInt(key, hour).putInt(key + "Minute", minute).apply(); showSchedule();
+        }, prefs.getInt(key, fallback), prefs.getInt(key + "Minute", 0), true).show();
     }
     private void addWorkApps() {
         if (!prefs.getBoolean("showWork", false)) return;
@@ -1336,6 +1376,20 @@ public class HomeActivity extends Activity {
         Arrays.fill(descriptions, "");
         for (int i = 0; i < labels.size(); i++) {
             switch (labels.get(i)) {
+                case "Home wallpaper": glyphs[i] = "▧"; break;
+                case "Wallpaper presets": glyphs[i] = "✦"; break;
+                case "Theme": case "Theme schedule": glyphs[i] = "◐"; break;
+                case "Icons": glyphs[i] = "▦"; break;
+                case "Fonts": glyphs[i] = "Aa"; break;
+                case "Clock": glyphs[i] = "◷"; break;
+                case "Widgets": glyphs[i] = "▦"; break;
+                case "Alphabet": glyphs[i] = "A–Z"; break;
+                case "Work apps": glyphs[i] = "▣"; break;
+                case "Chats": glyphs[i] = "▤"; break;
+                case "Notification access": glyphs[i] = "◇"; break;
+                case "Exclude apps from dots": glyphs[i] = "◌"; break;
+                case "Updates": glyphs[i] = "↑"; break;
+                case "Set as Home": glyphs[i] = "⌂"; break;
                 case "Icon style": glyphs[i] = "▦"; break;
                 case "Icon size": glyphs[i] = "↔"; break;
                 case "Icon shape": glyphs[i] = "◇"; break;
