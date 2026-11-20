@@ -1197,7 +1197,7 @@ public class HomeActivity extends Activity {
             return;
         }
         LinearLayout content = column(); content.setPadding(dp(18), dp(8), dp(18), dp(8));
-        TextView note = text("Active notifications only", 13, moss); content.addView(note);
+        TextView note = text("Conversations from active notifications", 13, moss); content.addView(note);
         ScrollView body = new ScrollView(this); LinearLayout rows = column(); body.addView(rows);
         content.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout buttons = new LinearLayout(this); content.addView(buttons);
@@ -1213,28 +1213,80 @@ public class HomeActivity extends Activity {
         rows.removeAllViews();
         boolean showText = prefs.getBoolean("chatPreviews", false);
         int count = 0;
-        if (chatEnabled()) for (StatusBarNotification item : ChatNotifications.current()) {
+        if (chatEnabled()) for (Map.Entry<String, List<StatusBarNotification>> entry : ChatNotifications.conversations().entrySet()) {
+            StatusBarNotification item = entry.getValue().get(0);
             if (!chatAllowed(item.getPackageName())) continue;
-            Notification n = item.getNotification();
-            rows.addView(text(chatAppName(item.getPackageName()), 15, moss));
-            if (showText && n.visibility != Notification.VISIBILITY_SECRET && n.extras != null) {
-                CharSequence title = n.extras.getCharSequence(Notification.EXTRA_TITLE), body = n.extras.getCharSequence(Notification.EXTRA_TEXT);
-                Parcelable[] messages = n.extras.getParcelableArray(Notification.EXTRA_MESSAGES);
-                if (messages != null && messages.length > 0 && messages[messages.length - 1] instanceof Bundle) {
-                    CharSequence latest = ((Bundle)messages[messages.length - 1]).getCharSequence("text");
-                    if (latest != null) body = latest;
-                }
-                if (title != null) rows.addView(text(chatText(title), 15, ink));
-                if (body != null) { TextView preview = text(chatText(body), 14, ink); preview.setMaxLines(4); rows.addView(preview); }
-            } else rows.addView(text("Message preview hidden", 14, ink));
-            LinearLayout actions = new LinearLayout(this); rows.addView(actions);
-            actions.addView(action("Open app", () -> openChatApp(item.getPackageName())), new LinearLayout.LayoutParams(0, dp(44), 1));
-            if (chatContentIntent(item) != null) actions.addView(action("Open chat", () -> openChat(item.getKey(), item.getPackageName())), new LinearLayout.LayoutParams(0, dp(44), 1));
-            if (ChatNotifications.replyAction(item) != null) actions.addView(action("Reply", () -> showChatReply(item)), new LinearLayout.LayoutParams(0, dp(44), 1));
+            TextView thread = action(chatTitle(item, showText) + "  ›", () -> showChatThread(entry.getKey(), item.getPackageName()));
+            rows.addView(thread);
+            CharSequence preview = visibleChatText(item, showText) ? latestChatText(item.getNotification()) : null;
+            TextView subtitle = text(chatAppName(item.getPackageName()) + (preview == null ? " · Preview hidden or unavailable" : " · " + chatText(preview)), 14, moss);
+            subtitle.setMaxLines(2); rows.addView(subtitle);
             View separator = new View(this); separator.setBackgroundColor(dividerColor); rows.addView(separator, new LinearLayout.LayoutParams(-1, dp(1)));
             if (++count == 50) break;
         }
         if (count == 0) rows.addView(text(ChatNotifications.available() ? "No active messages from included apps." : "Waiting for notification access. Try Refresh after enabling Still Chats in Android settings.", 15, ink));
+    }
+    private boolean visibleChatText(StatusBarNotification item, boolean enabled) {
+        Notification n = item.getNotification();
+        return enabled && n.visibility != Notification.VISIBILITY_SECRET && n.extras != null;
+    }
+    private String chatTitle(StatusBarNotification item, boolean previews) {
+        if (visibleChatText(item, previews)) {
+            Bundle extras = item.getNotification().extras;
+            CharSequence title = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE);
+            if (title == null) title = extras.getCharSequence(Notification.EXTRA_TITLE);
+            if (title != null && title.length() > 0) return chatText(title);
+        }
+        return "Conversation · " + chatAppName(item.getPackageName());
+    }
+    private CharSequence latestChatText(Notification n) {
+        Parcelable[] messages = n.extras.getParcelableArray(Notification.EXTRA_MESSAGES);
+        if (messages != null && messages.length > 0 && messages[messages.length - 1] instanceof Bundle) {
+            CharSequence value = ((Bundle)messages[messages.length - 1]).getCharSequence("text");
+            if (value != null) return value;
+        }
+        return n.extras.getCharSequence(Notification.EXTRA_TEXT);
+    }
+    private void showChatThread(String id, String pkg) {
+        if (!chatEnabled() || !chatAllowed(pkg)) return;
+        List<StatusBarNotification> thread = ChatNotifications.conversations().get(id);
+        if (thread == null || thread.isEmpty() || !pkg.equals(thread.get(0).getPackageName())) {
+            Toast.makeText(this, "This conversation is no longer active", Toast.LENGTH_SHORT).show(); return;
+        }
+        boolean previews = prefs.getBoolean("chatPreviews", false);
+        StatusBarNotification latest = thread.get(0);
+        LinearLayout content = column(); content.setPadding(dp(20), dp(8), dp(20), dp(8));
+        content.addView(text(chatAppName(pkg) + " · From active notifications", 13, moss));
+        ScrollView scroll = new ScrollView(this); LinearLayout messages = column(); scroll.addView(messages);
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, dp(210)));
+        Set<String> seen = new HashSet<>();
+        for (int i = Math.min(20, thread.size()) - 1; i >= 0; i--) {
+            StatusBarNotification item = thread.get(i);
+            if (!visibleChatText(item, previews)) continue;
+            Notification n = item.getNotification();
+            Parcelable[] entries = n.extras.getParcelableArray(Notification.EXTRA_MESSAGES);
+            if (entries != null && entries.length > 0) {
+                for (int j = Math.max(0, entries.length - 20); j < entries.length; j++) if (entries[j] instanceof Bundle) {
+                    Bundle message = (Bundle)entries[j];
+                    addThreadMessage(messages, seen, message.getCharSequence("text"), message.getLong("time", item.getPostTime()));
+                }
+            } else addThreadMessage(messages, seen, latestChatText(n), item.getPostTime());
+        }
+        if (seen.isEmpty()) messages.addView(text("Message text is hidden or unavailable. You can change previews in Chat settings.", 15, moss));
+        AlertDialog detail = new AlertDialog.Builder(this).setTitle(chatTitle(latest, previews)).setView(content).setNegativeButton("Back", null).create();
+        content.addView(action("Open " + chatAppName(pkg), () -> openChatApp(pkg)));
+        if (chatContentIntent(latest) != null) content.addView(action("Open conversation", () -> openChat(latest.getKey(), pkg)));
+        for (StatusBarNotification item : thread) if (ChatNotifications.replyAction(item) != null) {
+            content.addView(action("Reply via " + chatAppName(pkg), () -> showChatReply(item))); break;
+        }
+        detail.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE); detail.show();
+    }
+    private void addThreadMessage(LinearLayout rows, Set<String> seen, CharSequence body, long time) {
+        if (body == null || body.length() == 0 || seen.size() >= 50) return;
+        String snippet = chatText(body);
+        if (seen.add(time + ":" + snippet)) {
+            TextView message = text(snippet, 15, ink); message.setPadding(0, dp(8), 0, dp(8)); rows.addView(message);
+        }
     }
     private String chatText(CharSequence value) { String text = value.toString(); return text.length() > 600 ? text.substring(0, 600) + "…" : text; }
     private void showChatReply(StatusBarNotification item) {
@@ -1242,7 +1294,7 @@ public class HomeActivity extends Activity {
         reply.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4000)});
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Reply via " + chatAppName(item.getPackageName())).setView(reply)
             .setNegativeButton("Cancel", null).setPositiveButton("Send", (d,w) -> {
-                String message = reply.getText().toString().trim(); if (!message.isEmpty()) performChatAction(item.getKey(), message);
+                String message = reply.getText().toString().trim(); if (!message.isEmpty()) performChatAction(item.getKey(), ChatNotifications.conversationKey(item), message);
             }).create();
         dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE); dialog.show();
     }
@@ -1279,9 +1331,9 @@ public class HomeActivity extends Activity {
         }
         openChatApp(packageName);
     }
-    private void performChatAction(String key, String reply) {
+    private void performChatAction(String key, String conversation, String reply) {
         if (chatEnabled()) for (StatusBarNotification item : ChatNotifications.current()) {
-            if (!key.equals(item.getKey()) || !chatAllowed(item.getPackageName())) continue;
+            if (!key.equals(item.getKey()) || !conversation.equals(ChatNotifications.conversationKey(item)) || !chatAllowed(item.getPackageName())) continue;
             Notification.Action action = ChatNotifications.replyAction(item);
             if (action != null) try {
                 RemoteInput input = ChatNotifications.replyInput(action);

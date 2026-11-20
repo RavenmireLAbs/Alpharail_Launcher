@@ -41,6 +41,18 @@ public final class ChatNotifications extends NotificationListenerService {
         messages.sort(Comparator.comparingLong(StatusBarNotification::getPostTime).reversed());
         return messages;
     }
+    static String conversationKey(StatusBarNotification item) {
+        String shortcut = item.getNotification().getShortcutId();
+        // A notification key is safer than guessing identity from a person's display name.
+        return shortcut == null || shortcut.isEmpty() ? "notification:" + item.getKey()
+            : "shortcut:" + item.getPackageName() + ":" + shortcut;
+    }
+    static Map<String, List<StatusBarNotification>> conversations() {
+        Map<String, List<StatusBarNotification>> threads = new LinkedHashMap<>();
+        for (StatusBarNotification item : current())
+            threads.computeIfAbsent(conversationKey(item), ignored -> new ArrayList<>()).add(item);
+        return threads;
+    }
     static Notification.Action replyAction(StatusBarNotification item) {
         Notification.Action[] actions = item.getNotification().actions;
         if (actions != null) for (Notification.Action action : actions) {
