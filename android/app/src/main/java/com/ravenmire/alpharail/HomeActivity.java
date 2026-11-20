@@ -1106,15 +1106,57 @@ public class HomeActivity extends Activity {
         } catch (RuntimeException ignored) { /* Keep the theme accent when colors are unavailable. */ }
     }
     private void showRailColorSettings() {
-        List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
-        labels.add("Wallpaper major color" + (prefs.getInt("railColor", -1) == -1 ? " · Active" : ""));
-        actions.add(() -> applyRailColor(-1));
-        for (int i = 0; i < RAIL_COLORS.length; i++) {
-            final int color = i;
-            labels.add(RAIL_COLOR_NAMES[i] + (prefs.getInt("railColor", -1) == i ? " · Active" : ""));
-            actions.add(() -> applyRailColor(color));
+        int selected = prefs.getInt("railColor", -1);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = column(); content.setPadding(dp(16), dp(8), dp(16), dp(16));
+        scroll.addView(content);
+        AlertDialog picker = launcherDialog().setTitle("Alphabet color").setView(scroll)
+            .setNegativeButton("Back", (d,w) -> showListSettings()).create();
+        TextView automatic = action("Wallpaper major color" + (selected == -1 ? "  ✓" : ""),
+            () -> { picker.dismiss(); applyRailColor(-1); });
+        automatic.setContentDescription("Wallpaper major color" + (selected == -1 ? ", selected" : ""));
+        content.addView(automatic);
+        for (int start = 0; start < RAIL_COLORS.length; start += 5) {
+            LinearLayout row = new LinearLayout(this);
+            content.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            for (int i = start; i < Math.min(start + 5, RAIL_COLORS.length); i++) {
+                final int color = i;
+                LinearLayout tile = column(); tile.setGravity(Gravity.CENTER);
+                tile.setPadding(dp(3), dp(8), dp(3), dp(8));
+                tile.setFocusable(true); tile.setClickable(true); tile.setSelected(selected == i);
+                tile.setContentDescription(RAIL_COLOR_NAMES[i] + (selected == i ? ", selected" : ""));
+                tile.setOnClickListener(v -> { picker.dismiss(); applyRailColor(color); });
+                FrameLayout swatch = new FrameLayout(this);
+                GradientDrawable fill = rounded(RAIL_COLORS[i], 12);
+                fill.setStroke(dp(selected == i ? 3 : 1), selected == i
+                    ? (homeShowsWallpaper() ? wallpaperPanelTextColor() : ink) : 0xff888888);
+                swatch.setBackground(fill);
+                tile.addView(swatch, new LinearLayout.LayoutParams(dp(40), dp(40)));
+                // Draw the check as a vector so dialog text styling cannot reduce its contrast.
+                if (selected == i) {
+                    View check = new View(this) {
+                        @Override protected void onDraw(android.graphics.Canvas canvas) {
+                            super.onDraw(canvas);
+                            android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                            paint.setColor(android.graphics.Color.valueOf(RAIL_COLORS[color]).luminance() > .179 ? 0xff111111 : 0xffffffff);
+                            paint.setStrokeWidth(dp(3)); paint.setStyle(android.graphics.Paint.Style.STROKE);
+                            android.graphics.Path path = new android.graphics.Path();
+                            path.moveTo(getWidth() * .25f, getHeight() * .5f);
+                            path.lineTo(getWidth() * .44f, getHeight() * .68f);
+                            path.lineTo(getWidth() * .76f, getHeight() * .32f);
+                            canvas.drawPath(path, paint);
+                        }
+                    };
+                    check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                    swatch.addView(check, new FrameLayout.LayoutParams(-1, -1));
+                }
+                TextView label = text(RAIL_COLOR_NAMES[i], 10, ink); label.setGravity(Gravity.CENTER);
+                label.setPadding(0, dp(5), 0, 0); tile.addView(label);
+                row.addView(tile, new LinearLayout.LayoutParams(0, -2, 1));
+            }
         }
-        showMenu("Alphabet color", labels, actions);
+        if (homeShowsWallpaper()) styleWallpaperDialogContent(content);
+        picker.show();
     }
     private void applyRailColor(int selected) {
         prefs.edit().putInt("railColor", selected).apply();
