@@ -1248,7 +1248,23 @@ public class HomeActivity extends Activity {
     }
     private void showSettingsGroup(String title, List<String> labels, List<Runnable> actions) {
         String[] descriptions = new String[labels.size()], glyphs = new String[labels.size()];
-        Arrays.fill(descriptions, ""); Arrays.fill(glyphs, "·");
+        Arrays.fill(descriptions, "");
+        for (int i = 0; i < labels.size(); i++) {
+            switch (labels.get(i)) {
+                case "Icon style": glyphs[i] = "▦"; break;
+                case "Icon size": glyphs[i] = "↔"; break;
+                case "Icon shape": glyphs[i] = "◇"; break;
+                case "Font size": glyphs[i] = "Aa"; break;
+                case "Typeface": glyphs[i] = "Tt"; break;
+                case "Reorder Favorites": glyphs[i] = "★"; break;
+                case "Collections": glyphs[i] = "▤"; break;
+                case "Alphabet side": glyphs[i] = "⇄"; break;
+                case "Alphabet color": glyphs[i] = "◐"; break;
+                case "Hidden apps": glyphs[i] = "◌"; break;
+                case "App lock": glyphs[i] = "⚿"; break;
+                default: glyphs[i] = "⚙"; break;
+            }
+        }
         showSettingsPage(title, "Customize your launcher", labels.toArray(new String[0]), descriptions, glyphs, actions, this::showSettings);
     }
     private void setting(String title, String key, String[] values, int fallback, Runnable parent) {
