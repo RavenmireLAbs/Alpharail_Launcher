@@ -33,7 +33,7 @@ Settings pages use full-screen panels with Back navigation. Specialized pickers,
 | --- | --- |
 | **Appearance** | Wallpaper, wallpaper presets, White/Black themes, theme schedule, icons, fonts |
 | **Home & apps** | Clock, widgets, Favorites order, Collections, alphabet side/color, work apps |
-| **Notifications & Chats** | Notification dots, exclusions, Chats, Android notification access |
+| **Notifications** | Notification dots, exclusions, Android notification access |
 | **Privacy** | Hidden apps, App Lock |
 | **Accessibility** | Alphabet size, reduced animations, text contrast |
 | **Backup and restore** | Settings and appearance export/import |
@@ -45,21 +45,13 @@ Settings pages use full-screen panels with Back navigation. Specialized pickers,
 - **App shortcuts:** app-provided actions in the long-press menu use an **↗** marker. Available pinned shortcuts are queried alongside dynamic and static shortcuts. Actions depend on app support and Android shortcut-host permissions; App Lock authentication still applies.
 - **New app indicator:** apps installed after the feature is initialized receive a subtle **New** label until successfully launched from Alpharail. Existing apps are not all marked new, and ordinary app updates do not reset the label. Toggle it in **Home & apps → New app indicator**. Launches outside Alpharail are not tracked.
 
-### Optional Chats inbox
-
-Open **Chats → Enable Chats**, then grant **Alpharail Chats** notification access in Android settings. The inbox updates while open and groups active notifications into conversations when the messaging app supplies a stable conversation ID. It doesn’t retrieve old chat history or save or upload message contents.
-
-Use **App: All** to filter the active inbox by messaging app. Each row shows the source app icon. If previews are enabled and the source supplies a compatible sender picture, Alpharail displays it too. Open a thread to pin it when Android provides a stable conversation ID; pinned threads move to the top when active. Pins stay local and can be cleared in **Chat settings**.
-
-Previews are off by default. Hidden and App Locked apps are excluded. **Reply** and **Open conversation** only appear when a compatible notification action is available; **Open app** is separate. Use **Chat settings** to filter messaging apps, mute new-message dots or hide previews per app, or turn Chats off. You can revoke notification access in Android settings. **Chat settings → Screenshot protection** controls whether Android blocks screenshots and screen recordings of Chats. Protection is on by default.
-
 ### Updates
 
 Open **Launcher settings → System → Updates** to check for a newer signed APK or enable automatic checks. With automatic checks on, Alpharail checks GitHub at most once a day when opened. Downloads open in your browser and Android asks you to confirm installation; updates are not silently downloaded or installed.
 
 ### Backups and upgrades
 
-**Launcher settings → Backup and restore** exports Favorites, hidden apps, appearance, Collections, custom app names, and widget layout information. After importing, use **Widgets → Recover widgets** to re-add widgets through Android. Backups don’t include widget contents, accounts, App Lock, or Chats notification access.
+**Launcher settings → Backup and restore** exports Favorites, hidden apps, appearance, Collections, custom app names, and widget layout information. After importing, use **Widgets → Recover widgets** to re-add widgets through Android. Backups don’t include widget contents, accounts, App Lock, or notification access.
 
 - **Updating from signed Alpharail v0.3.4 or newer:** Install the newer APK over the existing app when it uses the same signing certificate.
 - **Updating from an old debug-signed Alpharail build:** Export settings first. Switching to the permanent signing key requires a one-time uninstall and reinstall.
