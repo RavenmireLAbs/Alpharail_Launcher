@@ -1,0 +1,26 @@
+name: Publish Preview 4
+on:
+  push:
+    branches: ['arena/3d38f3c5-android-launcher']
+    paths: ['.github/workflows/preview4.yml']
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 2bd835ecd3ab2210ceafd0ba05e7230c6250a956
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build and publish verified APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk=Still-v0.3.0-preview.4-debug.apk
+          android/scripts/package-apk.sh "$apk"
+          gh release create v0.3.0-preview.4 "$apk" --target 2bd835ecd3ab2210ceafd0ba05e7230c6250a956 --title 'Still v0.3.0 Preview 4' --prerelease --notes 'Android 8.0+. Adds Collections, widget stacks and guided recovery, appearance presets, ranked offline search, and long-press rename, hide, and collection actions. This development build uses a different signing key. Export your settings before uninstalling the old build. Uninstalling removes widget bindings; widget contents and App Lock are not backed up.'
