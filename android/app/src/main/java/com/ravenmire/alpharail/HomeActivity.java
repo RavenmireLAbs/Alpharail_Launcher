@@ -64,13 +64,20 @@ public class HomeActivity extends Activity {
     private static final int CONFIRM_LAUNCH = 21, CONFIRM_LOCK_SETTINGS = 22;
     private boolean welcome;
     private TextView clock, date;
+    private Drawable nextAlarmIcon;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable tick = new Runnable() {
         public void run() {
             if (clock != null && date != null) {
                 Date now = new Date();
                 String time = android.text.format.DateFormat.getTimeFormat(HomeActivity.this).format(now);
-                clock.setText(time); clock.setContentDescription(time + ", open Clock");
+                clock.setText(time);
+                android.app.AlarmManager alarms = getSystemService(android.app.AlarmManager.class);
+                android.app.AlarmManager.AlarmClockInfo next = alarms == null ? null : alarms.getNextAlarmClock();
+                clock.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, next == null ? null : nextAlarmIcon, null);
+                String alarmDescription = next == null ? "" : ", next alarm at " + android.text.format.DateFormat
+                    .getTimeFormat(HomeActivity.this).format(new Date(next.getTriggerTime()));
+                clock.setContentDescription(time + alarmDescription + ", open Clock");
                 String day = android.text.format.DateFormat.format("EEEE, MMMM d", now).toString().toUpperCase(Locale.getDefault());
                 date.setText(day); date.setContentDescription(day + ", open Calendar");
             }
@@ -143,6 +150,7 @@ public class HomeActivity extends Activity {
         privateChatDialogs.clear(); chatAvatars.evictAll(); sessionReplies.evictAll(); host.stopListening(); super.onStop(); }
     @Override protected void onResume() {
         super.onResume(); updateForeground = true;
+        if (!welcome && clock != null) { handler.removeCallbacks(tick); handler.post(tick); }
         if (!welcome && scroll != null) {
             if (reloadApps()) refresh();
             if (prefs.getBoolean("autoUpdates", false)) checkUpdates(false);
@@ -303,7 +311,7 @@ public class HomeActivity extends Activity {
     private void showWallpaperGallery(int start) {
         ScrollView scroll = new ScrollView(this);
         LinearLayout tiles = column(); tiles.setPadding(dp(18), 0, dp(18), dp(12)); scroll.addView(tiles);
-        AlertDialog gallery = new AlertDialog.Builder(this).setTitle(start == 0 ? "Light abstract wallpapers" : start == 5 ? "Dark abstract wallpapers" : "Wuxia & Xianxia")
+        AlertDialog gallery = launcherDialog().setTitle(start == 0 ? "Light abstract wallpapers" : start == 5 ? "Dark abstract wallpapers" : "Wuxia & Xianxia")
             .setView(scroll).setNegativeButton("Back", (d,w) -> { if (start < 14) showAbstractWallpapers(); else showWallpaperSettings(); }).create();
         LinearLayout row = null;
         int end = start == 0 ? 5 : start == 5 ? 14 : WALLPAPERS.length;
@@ -329,7 +337,7 @@ public class HomeActivity extends Activity {
         ImageView image = new ImageView(this); image.setImageResource(wallpaperRes(selected));
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         image.setAdjustViewBounds(true); image.setMaxHeight(dp(470));
-        new AlertDialog.Builder(this).setTitle(WALLPAPERS[selected]).setView(image)
+        launcherDialog().setTitle(WALLPAPERS[selected]).setView(image)
             .setNegativeButton("Back", (d,w) -> showWallpaperGallery(group))
             .setNeutralButton("Home only", (d,w) -> setAndroidWallpaper(selected, false))
             .setPositiveButton("Home & Lock", (d,w) -> setAndroidWallpaper(selected, true)).show();
@@ -381,6 +389,10 @@ public class HomeActivity extends Activity {
         clock.setFocusable(true); clock.setOnClickListener(v -> openClock());
         face.addView(clock, new LinearLayout.LayoutParams(-1, dp(74)));
         styleWallpaperText(date); styleWallpaperText(clock);
+        int alarmIconRes = getResources().getIdentifier("ic_next_alarm", "drawable", getPackageName());
+        nextAlarmIcon = alarmIconRes == 0 ? null : getDrawable(alarmIconRes).mutate();
+        if (nextAlarmIcon != null) nextAlarmIcon.setTint(clock.getCurrentTextColor());
+        clock.setCompoundDrawablePadding(dp(10));
         root.addView(hero, new LinearLayout.LayoutParams(-1, -2));
         handler.removeCallbacks(tick); handler.post(tick);
         LinearLayout bar = new LinearLayout(this);
@@ -683,24 +695,35 @@ public class HomeActivity extends Activity {
     private void emptyArea(View view) {
         view.setOnLongClickListener(v -> { showLauncherOptions(); return true; });
     }
+    private int wallpaperPanelTextColor() { return lightHomeWallpaper() ? 0xff141414 : 0xffffffff; }
+    private void styleWallpaperPanelText(TextView view) { view.setTextColor(wallpaperPanelTextColor()); }
+    private int wallpaperPanelColor() { return lightHomeWallpaper() ? 0xccffffff : 0xcc000000; }
     private void showLauncherOptions() {
         dismissKeyboard();
         Dialog panel = new Dialog(this);
         panel.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout content = column();
         GradientDrawable background = new GradientDrawable();
-        background.setColor(paper);
+        boolean wallpaper = homeShowsWallpaper();
+        background.setColor(wallpaper ? wallpaperPanelColor() : paper);
         float radius = dp(20);
         background.setCornerRadii(new float[]{radius, radius, radius, radius, 0, 0, 0, 0});
         content.setBackground(background);
         content.setPadding(dp(22), dp(12), dp(22), dp(16));
-        content.addView(action("Widgets", () -> { panel.dismiss(); showWidgets(); }));
-        content.addView(action("Launcher settings", () -> { panel.dismiss(); showSettings(); }));
+        TextView widgetsOption = action("Widgets", () -> { panel.dismiss(); showWidgets(); });
+        TextView settingsOption = action("Launcher settings", () -> { panel.dismiss(); showSettings(); });
+        if (wallpaper) {
+            styleWallpaperPanelText(widgetsOption);
+            styleWallpaperPanelText(settingsOption);
+        }
+        content.addView(widgetsOption);
+        content.addView(settingsOption);
         panel.setContentView(content);
         panel.show();
         Window window = panel.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
+            if (wallpaper) window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             window.setGravity(Gravity.BOTTOM);
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
@@ -780,9 +803,9 @@ public class HomeActivity extends Activity {
         }, "alpharail-update-check").start();
     }
     private boolean updateForeground;
-    @Override protected void onPause() { updateForeground = false; super.onPause(); }
+    @Override protected void onPause() { updateForeground = false; handler.removeCallbacks(tick); super.onPause(); }
     private void offerUpdate(String version) {
-        new AlertDialog.Builder(this).setTitle("Alpharail v" + version + " is available")
+        launcherDialog().setTitle("Alpharail v" + version + " is available")
             .setMessage("Open the official GitHub APK in your browser. Android will ask you to confirm installation.")
             .setNegativeButton("Later", null).setPositiveButton("Open download", (dialog, which) -> {
                 try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(ReleaseUpdates.downloadUrl(version)))); }
@@ -794,13 +817,15 @@ public class HomeActivity extends Activity {
     private void showSettingsPage(String title, String subtitle, String[] labels, String[] details, String[] glyphs, List<Runnable> actions, Runnable back) {
         Dialog page = new Dialog(this);
         page.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        LinearLayout content = column(); content.setBackgroundColor(paper); content.setPadding(dp(18), dp(10), dp(18), dp(8));
+        boolean wallpaper = homeShowsWallpaper();
+        LinearLayout content = column(); content.setBackgroundColor(wallpaper ? wallpaperPanelColor() : paper); content.setPadding(dp(18), dp(10), dp(18), dp(8));
         TextView close = action(back == null ? "Close settings" : "‹  Settings", () -> { page.dismiss(); if (back != null) back.run(); });
-        close.setTextColor(accent); content.addView(close);
-        FrameLayout banner = heroFrame(); LinearLayout heading = column(); heading.setPadding(dp(18), dp(12), dp(18), dp(14));
+        close.setTextColor(accent); if (wallpaper) styleWallpaperPanelText(close); content.addView(close);
+        FrameLayout banner = wallpaper ? new FrameLayout(this) : heroFrame(); LinearLayout heading = column(); heading.setPadding(dp(18), dp(12), dp(18), dp(14));
         TextView kicker = text("ALPHARAIL STUDIO", 10, 0xffd9dcff); kicker.setLetterSpacing(.2f); heading.addView(kicker);
         TextView name = text(title, 28, 0xffffffff); name.setTypeface(null, Typeface.BOLD); heading.addView(name);
-        heading.addView(text(subtitle, 13, 0xffe0e2ff)); banner.addView(heading); content.addView(banner, new LinearLayout.LayoutParams(-1, -2));
+        TextView sub = text(subtitle, 13, 0xffe0e2ff); heading.addView(sub);
+        if (wallpaper) { styleWallpaperPanelText(kicker); styleWallpaperPanelText(name); styleWallpaperPanelText(sub); } banner.addView(heading); content.addView(banner, new LinearLayout.LayoutParams(-1, -2));
         ScrollView scroll = new ScrollView(this); scroll.setClipToPadding(false); scroll.setPadding(0, dp(12), 0, dp(8));
         LinearLayout cards = column(); scroll.addView(cards); content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         for (int i = 0; i < labels.length; i++) {
@@ -808,26 +833,31 @@ public class HomeActivity extends Activity {
             LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(dp(12), dp(9), dp(12), dp(9));
             row.setMinimumHeight(dp(58)); row.setFocusable(true);
             row.setContentDescription(details[i].isEmpty() ? labels[i] : labels[i] + ", " + details[i]);
-            row.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x284c42ca), rounded(surface, 16), null));
+            row.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x284c42ca), rounded(wallpaper ? (lightHomeWallpaper() ? 0x22ffffff : 0x22000000) : surface, 16), null));
             if (select != null) row.setOnClickListener(v -> { page.dismiss(); select.run(); });
-            else { row.setEnabled(false); row.setFocusable(false); row.setAlpha(.55f); }
-            TextView icon = text(glyphs[i], 15, accent); icon.setGravity(Gravity.CENTER); icon.setBackground(rounded(dividerColor, 12));
+            else { row.setEnabled(false); row.setFocusable(false); row.setAlpha(wallpaper ? .72f : .55f); }
+            TextView icon = text(glyphs[i], 15, accent); icon.setGravity(Gravity.CENTER); icon.setBackground(rounded(wallpaper ? 0x22888888 : dividerColor, 12));
+            if (wallpaper) styleWallpaperPanelText(icon);
             row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
             LinearLayout description = column(); description.setPadding(dp(12), 0, dp(8), 0);
-            TextView label = text(labels[i], 15, ink); label.setTypeface(null, Typeface.BOLD); description.addView(label);
-            if (!details[i].isEmpty()) description.addView(text(details[i], 12, moss));
+            TextView label = text(labels[i], 15, ink); label.setTypeface(null, Typeface.BOLD); description.addView(label); if (wallpaper) styleWallpaperPanelText(label);
+            if (!details[i].isEmpty()) {
+                TextView detail = text(details[i], 12, moss); if (wallpaper) styleWallpaperPanelText(detail); description.addView(detail);
+            }
             row.addView(description, new LinearLayout.LayoutParams(0, -2, 1));
-            row.addView(text("›", 20, accent));
+            TextView arrow = text("›", 20, accent); if (wallpaper) styleWallpaperPanelText(arrow); row.addView(arrow);
             for (int child = 0; child < row.getChildCount(); child++) row.getChildAt(child).setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.bottomMargin = dp(7); cards.addView(row, spacing);
         }
         page.setContentView(content); page.show();
         Window window = page.getWindow();
         if (window != null) {
-            window.setBackgroundDrawable(new ColorDrawable(paper)); window.setLayout(-1, -1);
-            int bars = homeShowsWallpaper() ? 0xff161821 : paper;
+            window.setBackgroundDrawable(new ColorDrawable(wallpaper ? android.graphics.Color.TRANSPARENT : paper));
+            if (wallpaper) window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            window.setLayout(-1, -1);
+            int bars = wallpaper ? wallpaperPanelColor() : paper;
             window.setStatusBarColor(bars); window.setNavigationBarColor(bars);
-            window.getDecorView().setSystemUiVisibility(homeShowsWallpaper() || prefs.getInt("theme", 0) == 1 ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+            window.getDecorView().setSystemUiVisibility((wallpaper ? !lightHomeWallpaper() : prefs.getInt("theme", 0) == 1) ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         }
     }
     private void showThemeSettings() {
@@ -847,7 +877,7 @@ public class HomeActivity extends Activity {
             sample.setTextColor(dark ? 0xfff3f5fa : 0xff202124);
         });
         options.check(current == 1 ? black.getId() : white.getId());
-        new AlertDialog.Builder(this).setTitle("Preview theme").setView(content).setNegativeButton("Cancel", null)
+        launcherDialog().setTitle("Preview theme").setView(content).setNegativeButton("Cancel", null)
             .setPositiveButton("Apply", (d,w) -> {
                 int selected = options.getCheckedRadioButtonId() == black.getId() ? 1 : 0;
                 if (selected != current) { prefs.edit().putInt("theme", selected).apply(); recreate(); }
@@ -908,7 +938,7 @@ public class HomeActivity extends Activity {
         for (ResolveInfo app : apps) if (group.members.contains(key(app)) && !hidden.contains(key(app))) {
             labels.add(label(app) + (lockedApps.contains(app.activityInfo.packageName) ? "  🔒" : "")); actions.add(() -> openApp(app));
         }
-        if (labels.isEmpty()) new AlertDialog.Builder(this).setTitle(group.name).setMessage("No visible apps in this collection.").setPositiveButton("Close", null).show();
+        if (labels.isEmpty()) launcherDialog().setTitle(group.name).setMessage("No visible apps in this collection.").setPositiveButton("Close", null).show();
         else showMenu(group.name, labels, actions);
     }
     private void manageCollections() {
@@ -918,7 +948,7 @@ public class HomeActivity extends Activity {
         for (int i = 0; i < groups.size(); i++) {
             final int position = i;
             labels.add(groups.get(i).name); actions.add(() -> showMenu(groups.get(position).name, Arrays.asList("Edit", "Remove collection"), Arrays.asList(
-                () -> editCollection(groups, position), () -> new AlertDialog.Builder(this).setMessage("Remove this collection? Its apps stay installed.")
+                () -> editCollection(groups, position), () -> launcherDialog().setMessage("Remove this collection? Its apps stay installed.")
                     .setNegativeButton("Cancel", null).setPositiveButton("Remove", (d,w) -> { groups.remove(position); saveCollections(groups); manageCollections(); }).show())));
         }
         showMenu("Collections", labels, actions);
@@ -927,7 +957,7 @@ public class HomeActivity extends Activity {
         AppCollection existing = position < 0 ? new AppCollection("", Collections.emptySet()) : groups.get(position);
         EditText name = new EditText(this); name.setSingleLine(true); name.setHint("Collection name"); name.setText(existing.name);
         name.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(40)});
-        new AlertDialog.Builder(this).setTitle(position < 0 ? "New collection" : "Rename or edit collection").setView(name)
+        launcherDialog().setTitle(position < 0 ? "New collection" : "Rename or edit collection").setView(name)
             .setNegativeButton("Cancel", null).setPositiveButton("Choose apps", (d,w) -> {
                 String title = name.getText().toString().trim();
                 if (title.isEmpty()) { Toast.makeText(this, "Enter a collection name", Toast.LENGTH_SHORT).show(); return; }
@@ -935,7 +965,7 @@ public class HomeActivity extends Activity {
                 List<ResolveInfo> candidates = new ArrayList<>(); for (ResolveInfo app : apps) if (!hidden.contains(key(app))) candidates.add(app);
                 String[] labels = new String[candidates.size()]; boolean[] checked = new boolean[labels.length];
                 for (int i = 0; i < labels.length; i++) { labels[i] = label(candidates.get(i)); checked[i] = chosen.contains(key(candidates.get(i))); }
-                new AlertDialog.Builder(this).setTitle(title).setMultiChoiceItems(labels, checked, (selection,i,on) -> {
+                launcherDialog().setTitle(title).setMultiChoiceItems(labels, checked, (selection,i,on) -> {
                     String id = key(candidates.get(i)); if (on) chosen.add(id); else chosen.remove(id);
                 }).setNegativeButton("Cancel", null).setPositiveButton("Save", (selection,button) -> {
                     if (chosen.isEmpty()) { Toast.makeText(this, "Choose at least one app", Toast.LENGTH_SHORT).show(); return; }
@@ -954,7 +984,7 @@ public class HomeActivity extends Activity {
         showSettingsPage(title, "Customize your launcher", labels.toArray(new String[0]), descriptions, glyphs, actions, this::showSettings);
     }
     private void setting(String title, String key, String[] values, int fallback, Runnable parent) {
-        new AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(values, prefs.getInt(key, fallback), (d,i) -> {
+        launcherDialog().setTitle(title).setSingleChoiceItems(values, prefs.getInt(key, fallback), (d,i) -> {
             prefs.edit().putInt(key, i).apply();
             d.dismiss(); placeRail(); refresh(); parent.run();
         }).setNegativeButton("Back", (d,w) -> parent.run()).show();
@@ -981,7 +1011,7 @@ public class HomeActivity extends Activity {
         }
         if (apps.isEmpty()) choices.addView(text("No apps available", 15, ink));
         content.addView(scrollChoices, new LinearLayout.LayoutParams(-1, dp(Math.min(300, Math.max(60, apps.size() * 48)))));
-        new AlertDialog.Builder(this).setTitle(title).setView(content)
+        launcherDialog().setTitle(title).setView(content)
             .setNegativeButton("Back", (d,w) -> back.run())
             .setPositiveButton("Save", (d,w) -> {
                 Set<String> added = new HashSet<>(chosen); added.removeAll(saved(pref));
@@ -994,7 +1024,7 @@ public class HomeActivity extends Activity {
     private void reorderFavorites() {
         List<String> order = favoriteOrder(); order.removeAll(saved("hidden"));
         if (order.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle("Reorder Favorites").setMessage("Star apps to add them to Favorites.")
+            launcherDialog().setTitle("Reorder Favorites").setMessage("Star apps to add them to Favorites.")
                 .setPositiveButton("OK", null).show();
             return;
         }
@@ -1007,7 +1037,7 @@ public class HomeActivity extends Activity {
         List<String> labels = new ArrayList<>(); List<Runnable> actions = new ArrayList<>();
         addMoveActions(labels, actions, "favorites", favoriteOrder(), key(app), saved("hidden"));
         if (labels.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle(label(app)).setMessage("Add another favorite before reordering.")
+            launcherDialog().setTitle(label(app)).setMessage("Add another favorite before reordering.")
                 .setPositiveButton("OK", null).show();
         } else showMenu(label(app), labels, actions);
     }
@@ -1019,7 +1049,7 @@ public class HomeActivity extends Activity {
     private boolean requestCredential(int request, String title) {
         KeyguardManager keyguard = getSystemService(KeyguardManager.class);
         if (!keyguard.isDeviceSecure()) {
-            new AlertDialog.Builder(this).setTitle("Secure screen lock required")
+            launcherDialog().setTitle("Secure screen lock required")
                 .setMessage("Set a device PIN, pattern, or password in Android Settings to use App Lock.")
                 .setPositiveButton("OK", null).show();
             return false;
@@ -1038,7 +1068,7 @@ public class HomeActivity extends Activity {
         field.setSingleLine(true);
         field.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(40)});
         field.setText(label(app)); field.setSelectAllOnFocus(true);
-        new AlertDialog.Builder(this).setTitle("Rename in Alpharail").setMessage("This changes the name and alphabetical position in Alpharail only.")
+        launcherDialog().setTitle("Rename in Alpharail").setMessage("This changes the name and alphabetical position in Alpharail only.")
             .setView(field).setNegativeButton("Cancel", null)
             .setNeutralButton("Reset name", (d,w) -> { prefs.edit().remove(pref).apply(); reloadApps(); refresh(); })
             .setPositiveButton("Save", (d,w) -> {
@@ -1135,8 +1165,30 @@ public class HomeActivity extends Activity {
         if (i > 0) { labels.add("Move up"); actions.add(() -> move(kind, order, key, visible.get(i - 1))); }
         if (i >= 0 && i + 1 < visible.size()) { labels.add("Move down"); actions.add(() -> move(kind, order, key, visible.get(i + 1))); }
     }
+    private AlertDialog.Builder launcherDialog() {
+        if (!homeShowsWallpaper()) return new AlertDialog.Builder(this);
+        int theme = getResources().getIdentifier(lightHomeWallpaper() ? "WallpaperDialogLight" : "WallpaperDialogDark", "style", getPackageName());
+        return new AlertDialog.Builder(this, theme) {
+            @Override public AlertDialog.Builder setView(View view) {
+                styleWallpaperDialogContent(view);
+                return super.setView(view);
+            }
+        };
+    }
+    private void styleWallpaperDialogContent(View view) {
+        int color = wallpaperPanelTextColor();
+        if (view instanceof TextView) styleWallpaperPanelText((TextView) view);
+        if (view instanceof android.widget.EditText) ((android.widget.EditText) view).setHintTextColor(lightHomeWallpaper() ? 0xff505050 : 0xffcccccc);
+        if (view instanceof android.widget.CompoundButton) {
+            ((android.widget.CompoundButton) view).setButtonTintList(ColorStateList.valueOf(color));
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) styleWallpaperDialogContent(group.getChildAt(i));
+        }
+    }
     private void showMenu(String title, List<String> labels, List<Runnable> actions) {
-        new AlertDialog.Builder(this).setTitle(title).setItems(labels.toArray(new String[0]), (d,i) -> actions.get(i).run())
+        launcherDialog().setTitle(title).setItems(labels.toArray(new String[0]), (d,i) -> actions.get(i).run())
             .setNegativeButton("Cancel", null).show();
     }
     private int toDp(int px) { return Math.round(px / getResources().getDisplayMetrics().density); }
@@ -1213,7 +1265,7 @@ public class HomeActivity extends Activity {
             labels.add("Resize height"); actions.add(() -> resizeWidget(id, info));
         }
         labels.add("Remove widget");
-        actions.add(() -> new AlertDialog.Builder(this).setMessage("Remove this widget?").setNegativeButton("Cancel", null)
+        actions.add(() -> launcherDialog().setMessage("Remove this widget?").setNegativeButton("Cancel", null)
             .setPositiveButton("Remove", (d,w) -> {
                 Set<String> ids = saved("widgets"); ids.remove(id); store("widgets", ids);
                 List<String> order = widgetOrder(); saveOrder("widgets", order);
@@ -1238,7 +1290,7 @@ public class HomeActivity extends Activity {
             public void onStopTrackingTouch(SeekBar bar) {}
         });
         content.addView(height);
-        new AlertDialog.Builder(this).setTitle("Resize widget").setView(content).setNegativeButton("Cancel", null)
+        launcherDialog().setTitle("Resize widget").setView(content).setNegativeButton("Cancel", null)
             .setPositiveButton("Save", (d,w) -> {
                 prefs.edit().putInt("widgetHeight:" + id, min + height.getProgress()).apply(); refresh();
             }).show();
@@ -1421,7 +1473,7 @@ public class HomeActivity extends Activity {
             AppWidgetProviderInfo info = component == null ? null : providers.get(component.flattenToString());
             String name = info == null ? entry.optString("provider").split("/", 2)[0] + " · unavailable" : info.loadLabel(getPackageManager());
             labels.add((i + 1) + ". " + name);
-            actions.add(() -> new AlertDialog.Builder(this).setTitle(name)
+            actions.add(() -> launcherDialog().setTitle(name)
                 .setMessage(info == null ? "Install the widget’s app before trying again." : "Re-add this widget? Android may ask for permission and the widget may need to be configured again.")
                 .setNeutralButton("Skip", (d,w) -> {
                     if (pending != -1) return;
@@ -1431,7 +1483,7 @@ public class HomeActivity extends Activity {
         }
         if (labels.isEmpty()) { showWidgets(); return; }
         if (choose) showMenu("Recover widgets · " + labels.size() + " remaining", labels, actions);
-        else new AlertDialog.Builder(this).setTitle("Recover widgets")
+        else launcherDialog().setTitle("Recover widgets")
             .setMessage(labels.size() + " remaining. Next: " + labels.get(0) + ". Existing widgets will stay in place.")
             .setPositiveButton("Continue", (d,w) -> actions.get(0).run())
             .setNeutralButton("Choose widget", (d,w) -> showWidgetRecovery(true))
@@ -1443,7 +1495,7 @@ public class HomeActivity extends Activity {
         if (options.isEmpty()) { Toast.makeText(this, "No widgets available", Toast.LENGTH_SHORT).show(); return; }
         String[] names = new String[options.size()];
         for (int i = 0; i < names.length; i++) names[i] = options.get(i).loadLabel(getPackageManager());
-        new AlertDialog.Builder(this).setTitle("Add widget").setItems(names, (d,i) -> bindWidget(options.get(i))).setNegativeButton("Cancel", null).show();
+        launcherDialog().setTitle("Add widget").setItems(names, (d,i) -> bindWidget(options.get(i))).setNegativeButton("Cancel", null).show();
     }
     private void bindWidget(AppWidgetProviderInfo info) { bindWidget(info, -1); }
     private void bindWidget(AppWidgetProviderInfo info, int recovery) {
@@ -1506,7 +1558,7 @@ public class HomeActivity extends Activity {
     private void showChats() {
         dismissKeyboard();
         if (!chatEnabled()) {
-            new AlertDialog.Builder(this).setTitle("Chats")
+            launcherDialog().setTitle("Chats")
                 .setMessage("Optional: show active messaging notifications and reply where the app supports it. Android notification access can read all notifications. Alpharail only displays message notifications here, does not save or upload their contents, and cannot retrieve chat history. Photos and unsupported replies open in the original app.")
                 .setNegativeButton("Not now", null).setPositiveButton("Enable Chats", (d,w) -> {
                     prefs.edit().putBoolean("chatsEnabled", true).apply();
@@ -1520,7 +1572,7 @@ public class HomeActivity extends Activity {
         ScrollView body = new ScrollView(this); LinearLayout rows = column(); body.addView(rows);
         content.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout buttons = new LinearLayout(this); content.addView(buttons);
-        AlertDialog panel = new AlertDialog.Builder(this).setTitle("Chats").setView(content).setNegativeButton("Close", null).create();
+        AlertDialog panel = launcherDialog().setTitle("Chats").setView(content).setNegativeButton("Close", null).create();
         String[] filter = {null};
         TextView[] filterLabel = {null};
         TextView appFilter = action("App: All", () -> {
@@ -1534,7 +1586,7 @@ public class HomeActivity extends Activity {
             for (String pkg : packages) {
                 labels.add(chatAppName(pkg)); actions.add(() -> { filter[0] = pkg; filterLabel[0].setText("App: " + chatAppName(pkg)); fillChats(rows, pkg); });
             }
-            AlertDialog picker = new AlertDialog.Builder(this).setTitle("Filter Chats")
+            AlertDialog picker = launcherDialog().setTitle("Filter Chats")
                 .setItems(labels.toArray(new String[0]), (d,i) -> actions.get(i).run()).setNegativeButton("Cancel", null).create();
             showPrivateChatDialog(picker);
         });
@@ -1639,6 +1691,7 @@ public class HomeActivity extends Activity {
             if (++count == 50) break;
         }
         if (count == 0) rows.addView(text(ChatNotifications.available() ? (filter == null ? "No active messages from included apps." : "No active messages from " + chatAppName(filter) + ".") : "Waiting for notification access. Try Refresh after enabling Alpharail Chats in Android settings.", 15, ink));
+        if (homeShowsWallpaper()) styleWallpaperDialogContent(rows);
     }
     private boolean visibleChatText(StatusBarNotification item, boolean enabled) {
         Notification n = item.getNotification();
@@ -1715,7 +1768,7 @@ public class HomeActivity extends Activity {
         }
         for (SessionReply local : pendingReplies) addThreadMessage(messages, seen, local.text, local.time, true, true);
         if (seen.isEmpty()) messages.addView(text("Message text is hidden or unavailable. You can change previews in Chat settings.", 15, moss));
-        AlertDialog detail = new AlertDialog.Builder(this).setTitle(chatTitle(latest, previews)).setView(content).setNegativeButton("Back", null).create();
+        AlertDialog detail = launcherDialog().setTitle(chatTitle(latest, previews)).setView(content).setNegativeButton("Back", null).create();
         String pin = chatPinId(latest);
         if (pin != null) {
             TextView[] control = {null};
@@ -1748,7 +1801,7 @@ public class HomeActivity extends Activity {
         if (body == null || body.length() == 0 || (!handedOff && seen.size() >= 50)) return;
         String snippet = chatText(body);
         if (!seen.add(time + ":" + outgoing + ":" + snippet)) return;
-        LinearLayout bubble = column(); bubble.setBackground(rounded(outgoing ? dividerColor : surface, 14));
+        LinearLayout bubble = column(); bubble.setBackground(rounded(homeShowsWallpaper() ? (outgoing ? 0x557e83df : 0x33777777) : (outgoing ? dividerColor : surface), 14));
         bubble.setPadding(dp(12), dp(7), dp(12), dp(8));
         String author = outgoing ? (handedOff ? "You · Passed to app" : "You") : "Incoming";
         bubble.addView(text(author, 11, moss)); bubble.addView(text(snippet, 15, ink));
@@ -1762,7 +1815,7 @@ public class HomeActivity extends Activity {
     private void showChatReply(StatusBarNotification item, java.util.function.Consumer<String> onReply) {
         EditText reply = new EditText(this); reply.setHint("Write a text reply");
         reply.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4000)});
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Reply via " + chatAppName(item.getPackageName())).setView(reply)
+        AlertDialog dialog = launcherDialog().setTitle("Reply via " + chatAppName(item.getPackageName())).setView(reply)
             .setNegativeButton("Cancel", null).setPositiveButton("Send", (d,w) -> {
                 String message = reply.getText().toString().trim(); if (!message.isEmpty() && performChatAction(item.getKey(), ChatNotifications.conversationKey(item), message)) onReply.accept(message);
             }).create();
@@ -1820,7 +1873,7 @@ public class HomeActivity extends Activity {
         showMenu("Chat settings", Arrays.asList(prefs.getBoolean("chatPreviews", false) ? "Hide message previews" : "Show message previews", "Included apps", "Screenshot protection: " + (prefs.getBoolean("chatBlockScreenshots", true) ? "On" : "Off"), "Clear conversation pins", "Android notification access", "Turn off Chats"), Arrays.asList(
             () -> { chatAvatars.evictAll(); sessionReplies.evictAll(); prefs.edit().putBoolean("chatPreviews", !prefs.getBoolean("chatPreviews", false)).apply(); showChats(); },
             this::showChatApps, this::showChatScreenshotSettings,
-            () -> new AlertDialog.Builder(this).setTitle("Clear all conversation pins?")
+            () -> launcherDialog().setTitle("Clear all conversation pins?")
                 .setMessage("This only removes pins from Alpharail. Your messages stay in their original apps.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Clear pins", (d,w) -> {
                     prefs.edit().remove("chatPins").apply(); showChats();
@@ -1830,7 +1883,7 @@ public class HomeActivity extends Activity {
     }
     private void showChatScreenshotSettings() {
         boolean blocked = prefs.getBoolean("chatBlockScreenshots", true);
-        new AlertDialog.Builder(this).setTitle("Screenshot protection")
+        launcherDialog().setTitle("Screenshot protection")
             .setMessage("When protection is on, Android blocks screenshots and screen recordings of Chats. This does not affect the rest of the launcher.")
             .setPositiveButton(blocked ? "Allow screenshots" : "Block screenshots", (dialog, which) -> {
                 prefs.edit().putBoolean("chatBlockScreenshots", !blocked).apply();
@@ -1843,13 +1896,13 @@ public class HomeActivity extends Activity {
         for (ResolveInfo app : apps) if (ChatNotifications.isMessagingApp(this, app.activityInfo.packageName)) packages.add(app.activityInfo.packageName);
         List<String> entries = new ArrayList<>(packages); entries.sort(Comparator.comparing(this::chatAppName, Collator.getInstance()));
         if (entries.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle("Included apps").setMessage("No supported messaging apps are installed.")
+            launcherDialog().setTitle("Included apps").setMessage("No supported messaging apps are installed.")
                 .setPositiveButton("Back", (d,w) -> showChatSettings()).show();
             return;
         }
         String[] names = new String[entries.size()]; boolean[] flags = new boolean[entries.size()];
         for (int i = 0; i < names.length; i++) { names[i] = chatAppName(entries.get(i)); flags[i] = !excluded.contains(entries.get(i)); }
-        new AlertDialog.Builder(this).setTitle("Include message notifications from")
+        launcherDialog().setTitle("Include message notifications from")
             .setMultiChoiceItems(names, flags, (d,i,checked) -> { if (checked) excluded.remove(entries.get(i)); else excluded.add(entries.get(i)); })
             .setNegativeButton("Cancel", null).setPositiveButton("Save", (d,w) -> { store("chatExcluded", excluded); showChats(); }).show();
     }
@@ -1984,7 +2037,7 @@ public class HomeActivity extends Activity {
             + (hasWidgets ? " · " + recipes.length() + " widgets to recover" : "")
             + "\n\nInstalled widgets and App Lock stay unchanged."
             + (hasWidgets ? " This replaces the recovery list. To re-add widgets, open Widgets → Recover widgets." : "");
-        new AlertDialog.Builder(this).setTitle(appearanceOnly ? "Apply appearance preset?" : "Restore settings?")
+        launcherDialog().setTitle(appearanceOnly ? "Apply appearance preset?" : "Restore settings?")
             .setMessage(summary).setNegativeButton("Cancel", null).setPositiveButton(appearanceOnly ? "Apply" : "Restore", (d,w) -> {
                 android.content.SharedPreferences.Editor edit = prefs.edit();
                 if (!appearanceOnly) edit.putStringSet("favorites", new HashSet<>(favorites))

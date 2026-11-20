@@ -662,3 +662,28 @@ $('chats').onclick = showChats;
 $('home-clock').onclick = () => openDemoTarget('Clock');
 
 $('home-date').onclick = () => openDemoTarget('Calendar');
+
+// Open the featured panel immediately when viewing the shared preview link.
+const featuredPanel = new URLSearchParams(location.search).get('preview');
+if (featuredPanel === 'wallpaper-panel' || featuredPanel === 'wallpaper-app-info') {
+  showWelcome(false);
+  demoWallpaper = true;
+  demoWallpaperName = 'android';
+  update();
+  requestAnimationFrame(() => {
+    if (featuredPanel === 'wallpaper-app-info') appMenu('Camera', favorites.includes('Camera'));
+    else launcherOptions();
+  });
+}
+
+// Illustrate an Android-reported alarm in the browser, which cannot read device alarms.
+if (featuredPanel === 'next-alarm') {
+  showWelcome(false);
+  const indicator = document.createElement('span');
+  indicator.id = 'demo-next-alarm';
+  indicator.setAttribute('role', 'img');
+  indicator.setAttribute('aria-label', 'Example: next alarm at 7:00 AM');
+  indicator.title = 'Example: next alarm at 7:00 AM';
+  indicator.innerHTML = '<svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24"><path d="M12,5 A7.5,7.5 0,1 1,12 20 A7.5,7.5 0,1 1,12 5 M12,8.5 L12,12.5 L14.5,14 M6,3 L3,6 M18,3 L21,6 M7,19 L5.5,21 M17,19 L18.5,21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  $('home-clock').parentElement.append(indicator);
+}
