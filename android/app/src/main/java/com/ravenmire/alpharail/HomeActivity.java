@@ -1721,6 +1721,13 @@ public class HomeActivity extends Activity {
             try { startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.activityInfo.packageName, null))); }
             catch (ActivityNotFoundException | SecurityException ignored) { Toast.makeText(this, "App info unavailable", Toast.LENGTH_SHORT).show(); }
         });
+        labels.add("Uninstall app"); actions.add(() -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.activityInfo.packageName, null)));
+            } catch (ActivityNotFoundException | SecurityException ignored) {
+                Toast.makeText(this, "Android cannot uninstall this app. Check App info for available options.", Toast.LENGTH_LONG).show();
+            }
+        });
         labels.add("Rename in Alpharail"); actions.add(() -> renameApp(app));
         if (inFavorites) { labels.add("Favorite name only"); actions.add(() -> renameFavorite(app)); }
         List<AppCollection> groups = collections();

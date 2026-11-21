@@ -109,6 +109,7 @@ function showUndo(message, restore) {
 const sampleShortcuts = new Map([['Messages', 'New message'], ['Camera', 'Take photo'], ['Maps', 'Search map']]);
 function appMenu(name, inFavorites) {
   const items = [['App info', () => menu('App info', [], hint(`${name} is a demo app. On Android this opens system App info.`))]];
+  items.push(['Uninstall app', () => menu('Uninstall app', [], hint(`${name} is a demo app. On Android this opens the system uninstall confirmation. Protected apps may not allow removal.`))]);
   const shortcut = sampleShortcuts.get(name);
   if (shortcut) items.push([shortcut, () => openDemoTarget(name, shortcut)]);
   if (inFavorites) items.push(...moves(favorites, name, favorites.filter(app => !hidden.includes(app))));
