@@ -73,3 +73,5 @@ Configure repository Actions secrets `STILL_KEYSTORE_BASE64` and `STILL_STORE_PA
 ## License
 
 Alpharail is licensed under the [MIT License](LICENSE).
+
+Long-press an app (including in Favorites) and choose **Uninstall app** to open Android’s uninstall confirmation. Android controls whether an app can be removed; protected system apps may not allow uninstallation.
