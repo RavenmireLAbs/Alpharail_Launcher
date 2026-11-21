@@ -1723,7 +1723,7 @@ public class HomeActivity extends Activity {
         });
         labels.add("Uninstall app"); actions.add(() -> {
             try {
-                startActivity(new Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.activityInfo.packageName, null)));
+                startActivity(new Intent(Intent.ACTION_UNINSTALL_PACKAGE, Uri.fromParts("package", app.activityInfo.packageName, null)));
             } catch (ActivityNotFoundException | SecurityException ignored) {
                 Toast.makeText(this, "Android cannot uninstall this app. Check App info for available options.", Toast.LENGTH_LONG).show();
             }
